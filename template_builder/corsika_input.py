@@ -1,0 +1,168 @@
+"""
+The purpose of this class is to create the input cards required for launching the CORSIKA
+jobs used in ImPACT template generation
+"""
+
+import numpy as np
+from ctapipe.coordinates import *
+import astropy.units as u
+
+
+class CORSIKAInput:
+
+    def __init__(self, input_parameters, energy_scaling=False,
+                 event_scaling_index=-1, min_events=200):
+        """
+        Generates CORSIKA input cards for a
+
+        :param input_parameters: dict
+            Dictionary of shared CORSIKA input parameters
+        :param energy_scaling: bool
+            Perform scaling of energies by cos zenith angle
+        :param event_scaling_index: float
+            Power law index the scale event numbers by energy
+        :param min_events: int
+            Minimum number of events to simulate
+        """
+        self.input_parameters = input_parameters
+        self.common_input = self.generate_common_input(self.input_parameters)
+        self.energy_scaling = energy_scaling
+        self.event_scaling_index = event_scaling_index
+        self.min_events = min_events
+
+    @staticmethod
+    def generate_common_input(input_parameters):
+        """
+        A simple function to create the common aspects of the CORSIKA input file for
+        all energies zenith angles etc
+
+        :param input_parameters: dict()
+            dictionary of common input parameters
+        :return: str
+            common CORSIKA input card entries
+        """
+        common_input = str()
+        for input_line in input_parameters:
+            common_input += "%s %s \n" % (input_line.upper(), input_parameters[input_line])
+
+        return common_input
+
+    def simulation_range(self, altitude, azimuth, energy, core_distance, rotation_angle):
+        """
+
+        :param altitude: ndarray
+            Simulated altitude
+        :param azimuth: ndarray
+            Simulated azimuth
+        :param energy: ndarray
+            Simulated energy
+        :param core_distance: ndarray
+            Telescope core distances required in simulation
+        :param rotation_angle: ndarray
+            Rotation angle of telescopes (degrees)
+        :return: dict
+            Dictiontary of telescope position for each simulation required
+        """
+
+        # First lets make sure everything is an array
+        altitude = np.array(altitude)
+        azimuth = np.array(azimuth)
+        energy = np.array(energy)
+        rotation_angle = np.array(rotation_angle)
+
+        # Create x, y positions of telescopes
+        xt = np.array(core_distance)
+        yt = np.zeros_like(xt)
+
+        xr, yr = list(), list()
+        # Rotate telescope positions by each rotation angle requested
+        for phi in np.nditer(rotation_angle):
+            xr.append(xt * np.cos(np.deg2rad(phi)) - yt * np.sin(np.deg2rad(phi)))
+            yr.append(xt * np.sin(np.deg2rad(phi)) + yt * np.cos(np.deg2rad(phi)))
+
+        # Create 1D array of x, y, z positions of each telescope requested
+        xr = np.array(xr).ravel()
+        yr = np.array(yr).ravel()
+        simulation_dict = {}
+        # Now loop over altitude, azimuth and energy
+        for alt in np.nditer(altitude):
+            for az in np.nditer(azimuth):
+                # We will need this later for coordinate conversions
+                horizon_system = HorizonFrame(alt=alt*u.deg, az=az*u.deg)
+
+                # Scale the simulated energies if requested
+                if self.energy_scaling:
+                    energy = np.cos(np.deg2rad(90-alt)) * energy
+
+                for en in np.nditer(energy):
+                    # We define our core distance in the tilted system, but when we
+                    # simulate we do this in the ground system, so we need to
+                    # project these values onto the ground
+                    tilted_system = TiltedGroundFrame(x=xr*u.m, y=yr*u.m,
+                                                      pointing_direction=horizon_system)
+                    ground_system = project_to_ground(tilted_system)
+
+                    simulation_dict[(90-float(alt), float(az), float(en))] = \
+                        np.array([ground_system.x.value,
+                                  ground_system.y.value,
+                                  np.zeros_like(ground_system.y.value)]).T
+
+        return simulation_dict
+
+    def create_corsika_input(self, simuation_dict, num_showers):
+        """
+        Create CORSIKA input cards for each of the simulation sets
+
+        :param simuation_dict: dict
+            Dictionary of telescope positions for each simulation set
+        :return: dict
+            Dictionary of input cards for each simulation
+        """
+        card_dict = {}
+        for zen, az, en in simuation_dict:
+
+            zenith_input = "THETA %.1f %.1f \n" % (zen, zen)
+            azimuth_input = "PHI %.1f %.1f \n" % (az, az)
+            energy_input = "EN %.1f %.1f \n" % (en * 100, en * 100)
+
+            num = float(num_showers) * np.power(float(en), self.event_scaling_index)
+            if num < self.min_events:
+                num = self.min_events
+
+            number_input = "NSHOW %d \n" % (num)
+
+            input_params = zenith_input + azimuth_input + energy_input + number_input
+            tel_input = ""
+            for tel in simuation_dict[(zen, az, en)]:
+                tel_input += "TELESCOPE %.1f %.1f %.1f \n" % (tel[0] * 100, tel[1] * 100,
+                                                              tel[2] * 100)
+
+            card_dict[(zen, az, en)] = input_params + tel_input + self.common_input
+
+        return card_dict
+
+    def get_input_cards(self, num_showers, altitude, azimuth,
+                        energy, core_distance, rotation_angle):
+        """
+        Create CORSIKA input cards for a given range of altitude, azimuth, energy,
+        core distance and telescope rotation angle
+
+        :param num_showers: float
+            Number of showers to simulate (normalised at 1 TeV)
+        :param altitude: ndarray
+            Simulated altitudes
+        :param azimuth: ndarrray
+            Simulated azimuths
+        :param energy: ndarray
+            Simulated energies
+        :param core_distance: ndarray
+            Simulated core distance
+        :param rotation_angle: ndarray
+            simulated rotation angles
+        :return: dict
+            Dictionary of CORSIKA input cards
+        """
+        sim_range = self.simulation_range(altitude, azimuth, energy,
+                                          core_distance, rotation_angle)
+
+        return self.create_corsika_input(sim_range, num_showers)
