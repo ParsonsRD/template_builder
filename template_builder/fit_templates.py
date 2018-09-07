@@ -1,6 +1,9 @@
 """
 
 """
+import gzip
+import pickle
+
 import astropy.units as u
 import numpy as np
 from ctapipe.calib.camera.dl0 import CameraDL0Reducer
@@ -8,11 +11,10 @@ from ctapipe.calib.camera.dl1 import CameraDL1Calibrator
 from ctapipe.calib.camera.r1 import HESSIOR1Calibrator
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame, HorizonFrame
-
 from ctapipe.io.hessio import hessio_event_source
 from ctapipe.reco import ImPACTReconstructor
-from tqdm import tqdm
 from sklearn.neural_network import MLPRegressor
+from tqdm import tqdm
 
 
 def find_nearest_bin(array, value):
@@ -170,19 +172,19 @@ class TemplateFitter:
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
                 # Now fill up our output with the X, Y and amplitude of our pixels
-                if (energy.value, int(impact.value), x_diff_bin) in templates.keys():
+                if (energy.value, int(impact), x_diff_bin) in templates.keys():
                     # Extend the list if an entry already exists
-                    templates[(energy.value, int(impact.value), x_diff_bin)].extend(image)
-                    templates_xb[(energy.value, int(impact.value), x_diff_bin)].extend(
+                    templates[(energy.value, int(impact), x_diff_bin)].extend(image)
+                    templates_xb[(energy.value, int(impact), x_diff_bin)].extend(
                         pix_x_rot.value)
-                    templates_yb[(energy.value, int(impact.value), x_diff_bin)].extend(
+                    templates_yb[(energy.value, int(impact), x_diff_bin)].extend(
                         pix_y_rot.value)
                 else:
-                    templates[(energy.value, int(impact.value), x_diff_bin)] = \
+                    templates[(energy.value, int(impact), x_diff_bin)] = \
                         image.tolist()
-                    templates_xb[(energy.value, int(impact.value), x_diff_bin)] = \
+                    templates_xb[(energy.value, int(impact), x_diff_bin)] = \
                         pix_x_rot.value.tolist()
-                    templates_yb[(energy.value, int(impact.value), x_diff_bin)] = \
+                    templates_yb[(energy.value, int(impact), x_diff_bin)] = \
                         pix_y_rot.value.tolist()
 
             if num > max_events:
@@ -253,7 +255,7 @@ class TemplateFitter:
 
         # We need a large number of layers to get this fit right
 
-        nodes = (64, 64, 64, 64, 64, 64, 64, 64, 64)
+        nodes = (32, 32, 32, 32, 32, 32, 32, 32, 32)
         model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                              max_iter=10000, tol=0,
                              early_stopping=True)
@@ -261,3 +263,35 @@ class TemplateFitter:
         model.fit(pixel_pos.T, amp)
 
         return model
+
+    def generate_templates(self, file_list, save_file=False, output_file = "",
+                           max_events=1e9):
+        """
+
+        :param file_list: list
+            List of sim_telarray input files
+        :param save_file: bool
+            Should we save the output to disk
+        :param output_file: string
+            Output file name
+        :param max_events: int
+            Maximum number of events to process
+        :return: dict
+            Dictionary of image templates
+
+        """
+        templates = dict()
+
+        for filename in file_list:
+            pix_lists = self.read_templates(filename, max_events)
+            file_templates = self.fit_templates(*pix_lists)
+
+            templates.update(file_templates)
+
+            pix_lists = None
+            file_templates = None
+
+        if save_file:
+            file_handler = gzip.open(output_file, "wb")
+            pickle.dump(templates, file_handler)
+            file_handler.close()
