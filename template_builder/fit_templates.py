@@ -3,6 +3,7 @@
 """
 import gzip
 import pickle
+import copy
 
 import astropy.units as u
 import numpy as np
@@ -14,6 +15,7 @@ from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
 from ctapipe.io.hessio import hessio_event_source
 from ctapipe.reco import ImPACTReconstructor
 from sklearn.neural_network import MLPRegressor
+from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 
@@ -35,7 +37,7 @@ def find_nearest_bin(array, value):
 class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000):
+                 min_fit_pixels=3000, verbose=False):
         """
 
         :param eff_fl:
@@ -43,6 +45,8 @@ class TemplateFitter:
         :param bins:
         :param min_fit_pixels:
         """
+
+        self.verbose = verbose
         self.xmax_bins = np.linspace(-150, 250, 17)
         self.eff_fl = eff_fl
 
@@ -258,22 +262,122 @@ class TemplateFitter:
         nodes = (32, 32, 32, 32, 32, 32, 32, 32, 32)
         model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                              max_iter=10000, tol=0,
-                             early_stopping=True)
+                             early_stopping=True, verbose=True)
 
         model.fit(pixel_pos.T, amp)
 
         return model
 
-    def generate_templates(self, file_list, save_file=False, output_file = "",
+    def extend_xmax_range(self, templates):
+        """
+        Copy templates in empty xmax bins, helps to prevent problems from reaching the
+        edge of the interpolation space.
+
+        :param templates: dict
+            Image templates
+        :return: dict
+            Extended image templates
+        """
+
+        # Create dictionary for our new templates
+        extended_templates = dict()
+
+        # Loop over image templates
+        for key in templates:
+            min_key_bin = list()
+            key_copy = 0
+
+            for xb in self.xmax_bins:
+                key_test = (key[0], key[1], xb)
+
+                if key_test not in extended_templates.keys():
+                    min_key_bin.append(key_test)
+                else:
+                    key_copy = key_test
+                    break
+            for k in min_key_bin:
+                print(k, key_copy)
+                if key_copy != 0:
+                    extended_templates[k] = templates[key_copy]
+
+            min_key_bin = list()
+            key_copy = 0
+
+            for xb in reversed(self.xmax_bins):
+                key_test = (key[0], key[1], xb)
+                if key_test not in extended_templates.keys():
+                    min_key_bin.append(key_test)
+                else:
+                    key_copy = key_test
+                    break
+
+            for k in min_key_bin:
+                if key_copy != 0:
+                    extended_templates[k] = templates[key_copy]
+
+        templates.update(extended_templates)
+        return templates
+
+    def extend_distance_range(self, templates, additional_bins=4):
+
+        keys = np.array(list(templates.keys()))
+        distances = np.unique(keys.T[1])
+        energies = np.unique(keys.T[0])
+
+        extended_templates = copy.deepcopy(templates)
+
+        for en in energies:
+            for xmax in self.xmax_bins:
+
+                i = 0
+                distance_list = list()
+                for dist in distances[0:]\
+                        :
+                    key = (en, dist, xmax)
+                    if key not in templates.keys():
+                        break
+                    else:
+                        distance_list.append(templates[key])
+                        i += 1
+                num_dists = len(distance_list)
+
+                if num_dists > 1 and num_dists < len(distances):
+                    distance_list = np.array(distance_list)
+
+                    diff = len(distances) - len(distance_list)
+
+                    if diff > additional_bins:
+                        diff = additional_bins
+                    for j in range(i, i + diff):
+                        interp = interp1d(distances[0:i], distance_list, axis=0,
+                                          bounds_error=False,
+                                          fill_value="extrapolate", kind="linear")
+
+                        int_val = interp(distances[j])
+                        int_val[int_val < 0] = 0
+                        key = (en, distances[j], xmax)
+
+                        extended_templates[key] = int_val
+
+        return extended_templates
+
+    def extend_template_coverage(self, templates):
+
+        templates = self.extend_xmax_range(templates)
+        templates = self.extend_distance_range(templates, 4)
+
+        return templates
+
+    def generate_templates(self, file_list, output_file, extend_range=True,
                            max_events=1e9):
         """
 
         :param file_list: list
             List of sim_telarray input files
-        :param save_file: bool
-            Should we save the output to disk
         :param output_file: string
             Output file name
+        :param extend_range: bool
+            Extend range of the templates beyond simulations
         :param max_events: int
             Maximum number of events to process
         :return: dict
@@ -291,7 +395,12 @@ class TemplateFitter:
             pix_lists = None
             file_templates = None
 
-        if save_file:
-            file_handler = gzip.open(output_file, "wb")
-            pickle.dump(templates, file_handler)
-            file_handler.close()
+        # Extend coverage of the templates by extrapolation if requested
+        if extend_range:
+            templates = self.extend_template_coverage(templates)
+
+        file_handler = gzip.open(output_file, "wb")
+        pickle.dump(templates, file_handler)
+        file_handler.close()
+
+        return templates
