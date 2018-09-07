@@ -1,0 +1,11 @@
+
+Simulation:
+
+  min_energy: 0.3162 # 10^-0.5 TeV for easy logarithmic binning
+  max_energy: 316.2 # 10^2.5 TeV for easy logarithmic binning
+  energy_bins: 15 # bins logarithmically spaced
+
+  event_number: 1000
+  zenith_scaling: True
+  min_events: 200
+  scaling_index: -1.5
