@@ -287,25 +287,29 @@ class TemplateFitter:
             min_key_bin = list()
             key_copy = 0
 
+            # For each entry loop forward over possible xmax entries to check if they
+            # exist
             for xb in self.xmax_bins:
                 key_test = (key[0], key[1], xb)
-
-                if key_test not in extended_templates.keys():
+                # keep looping until we have found the largest xmax value
+                if (key_test not in extended_templates.keys()) and \
+                        (key_test not in templates.keys()):
                     min_key_bin.append(key_test)
                 else:
                     key_copy = key_test
                     break
+            # Then copy in the highest xmax valid template into these etries
             for k in min_key_bin:
-                print(k, key_copy)
                 if key_copy != 0:
                     extended_templates[k] = templates[key_copy]
 
             min_key_bin = list()
             key_copy = 0
-
+            # Now we just do the same in reverse
             for xb in reversed(self.xmax_bins):
                 key_test = (key[0], key[1], xb)
-                if key_test not in extended_templates.keys():
+                if (key_test not in extended_templates.keys()) and \
+                        (key_test not in templates.keys()):
                     min_key_bin.append(key_test)
                 else:
                     key_copy = key_test
@@ -315,32 +319,39 @@ class TemplateFitter:
                 if key_copy != 0:
                     extended_templates[k] = templates[key_copy]
 
+        # Copy new template entries into the original
         templates.update(extended_templates)
         return templates
 
     def extend_distance_range(self, templates, additional_bins=4):
+        """
+        Copy templates in empty xmax bins, helps to prevent problems from reaching the
+        edge of the interpolation space.
 
+        :param templates: dict
+            Image templates
+        :return: dict
+            Extended image templates
+        """
         keys = np.array(list(templates.keys()))
         distances = np.unique(keys.T[1])
         energies = np.unique(keys.T[0])
 
-        extended_templates = copy.deepcopy(templates)
+        extended_templates = dict()
 
         for en in energies:
             for xmax in self.xmax_bins:
-
                 i = 0
                 distance_list = list()
-                for dist in distances[0:]\
-                        :
+                for dist in distances[0:]:
                     key = (en, dist, xmax)
                     if key not in templates.keys():
                         break
                     else:
                         distance_list.append(templates[key])
                         i += 1
-                num_dists = len(distance_list)
 
+                num_dists = len(distance_list)
                 if num_dists > 1 and num_dists < len(distances):
                     distance_list = np.array(distance_list)
 
@@ -359,7 +370,9 @@ class TemplateFitter:
 
                         extended_templates[key] = int_val
 
-        return extended_templates
+        templates.update(extended_templates)
+
+        return templates
 
     def extend_template_coverage(self, templates):
 
