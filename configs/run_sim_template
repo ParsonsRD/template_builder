@@ -1,0 +1,52 @@
+#!/bin/sh
+
+cfg="$(basename $0 | sed 's/run_sim_hessarray_\(.*\)$/\1/' | sed 's/run_sim_telarray_\(.*\)$/\1/' | sed 's/run_sim_\(.*\)$/\1/')"
+if [ ! -z "${SIMTEL_MULTI_CFG}" ]; then cfg="${SIMTEL_MULTI_CFG}"; fi
+
+name=$(echo $0 | grep hess 2>&1 >/dev/null && echo sim_hessarray || echo sim_telarray)
+
+echo "Starting run_${name}_generic script for configuration '${cfg}'."
+echo $DYLD_LIBRARY_PATH
+
+if [ -z "${SIM_TELARRAY_PATH}" ]; then
+   SIM_TELARRAY_RUN_PATH="$(cd $(dirname $0) && pwd -P)"
+   if [ "${SIM_TELARRAY_RUN_PATH}" = "." ]; then
+      SIM_TELARRAY_RUN_PATH="$(pwd -P)"
+   fi
+   if [ "$(dirname ${SIM_TELARRAY_RUN_PATH})" = "sim_telarray" ]; then
+      SIM_TELARRAY_PATH="$(dirname ${SIM_TELARRAY_RUN_PATH})"
+   else
+      SIM_TELARRAY_PATH="${SIM_TELARRAY_RUN_PATH}"
+   fi
+fi
+
+export SIM_TELARRAY_PATH
+export cfg
+
+cd ${SIM_TELARRAY_PATH} || exit 1
+
+echo "Working directory is `/bin/pwd`"
+
+printenv | grep CORSIKA
+
+multicfg=""
+if [ -f "multi/multi_${cfg}.cfg" ]; then
+   multicfg="multi/multi_${cfg}.cfg"
+else
+  if [ -f "util/multi_${cfg}.cfg" ]; then
+     multicfg="util/multi_${cfg}.cfg"
+  else
+     if [ -f "multi_${cfg}.cfg" ]; then
+        multicfg="multi_${cfg}.cfg"
+     fi
+  fi
+fi
+
+if [ "${multicfg}" = "" ]; then
+   echo "Cannot locate configuration file multi_${cfg}.cfg"
+   exit 1
+fi
+
+set -x
+
+bin/multipipe_corsika -c "${multicfg}" || echo 'Fan-out failed'
