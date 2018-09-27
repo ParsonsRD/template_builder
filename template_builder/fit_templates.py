@@ -40,10 +40,14 @@ class TemplateFitter:
                  min_fit_pixels=3000, verbose=False):
         """
 
-        :param eff_fl:
-        :param bounds:
-        :param bins:
-        :param min_fit_pixels:
+        :param eff_fl: float
+            Effective focal length scaling of the telescope (to account for distortions)
+        :param bounds: tuple
+            Boundaries of resultant templates
+        :param bins: tuple
+            Number of bins in x and y dimensions of template
+        :param min_fit_pixels: int
+            Minimum number of pixels required in event to perform fit
         """
 
         self.verbose = verbose
