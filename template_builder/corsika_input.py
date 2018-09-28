@@ -109,12 +109,16 @@ class CORSIKAInput:
 
         return simulation_dict
 
-    def create_corsika_input(self, simuation_dict, num_showers):
+    def create_corsika_input(self, simuation_dict, num_showers, cherenkov_output):
         """
         Create CORSIKA input cards for each of the simulation sets
 
         :param simuation_dict: dict
             Dictionary of telescope positions for each simulation set
+        :param num_showers: str
+            Number of showers to simulate
+        :param cherenkov_output: str
+            Name of sim_telarray run script
         :return: dict
             Dictionary of input cards for each simulation
         """
@@ -137,12 +141,15 @@ class CORSIKAInput:
                 tel_input += "TELESCOPE %.1f %.1f %.1f \n" % (tel[0] * 100, tel[1] * 100,
                                                               tel[2] * 100)
 
-            card_dict[(zen, az, en)] = input_params + tel_input + self.common_input
+            cherenkov_output_file = "TELFIL " + cherenkov_output
+
+            card_dict[(zen, az, en)] = input_params + tel_input + self.common_input + \
+                                       cherenkov_output_file
 
         return card_dict
 
     def get_input_cards(self, num_showers, altitude, azimuth,
-                        energy, core_distance, rotation_angle):
+                        energy, core_distance, rotation_angle, cherenkov_output):
         """
         Create CORSIKA input cards for a given range of altitude, azimuth, energy,
         core distance and telescope rotation angle
@@ -159,10 +166,12 @@ class CORSIKAInput:
             Simulated core distance
         :param rotation_angle: ndarray
             simulated rotation angles
+        :param cherenkov_output: str
+            Name of sim_telarray run script
         :return: dict
             Dictionary of CORSIKA input cards
         """
         sim_range = self.simulation_range(altitude, azimuth, energy,
                                           core_distance, rotation_angle)
 
-        return self.create_corsika_input(sim_range, num_showers)
+        return self.create_corsika_input(sim_range, num_showers, cherenkov_output)
