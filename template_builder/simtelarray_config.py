@@ -48,8 +48,10 @@ class SimTelArrayConfig:
             Commands to run simulations
         """
 
+        # First set up configuration
         self.make_config(simtel_directory)
 
+        # Then generate command to run stuff
         return self.make_run_command(simtel_directory, corsika_input)
 
     def make_config(self, simtel_directory):
@@ -62,6 +64,7 @@ class SimTelArrayConfig:
         :return:
         """
 
+        # Fist make the appropriate directories for the sim_telarray output
         for off in self.offsets:
             path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/"+
                          str(off)+"deg/Data/")
@@ -76,6 +79,7 @@ class SimTelArrayConfig:
             path.mkdir(parents=True, exist_ok=True)
 
         base_directory = self.config_file.rsplit('/', 1)[0]
+        # Then copy into sim_telarray the config files
         shutil.copy("configs/run_sim_template", simtel_directory + "/sim_telarray/" +
                     "/run_sim_template_" + self.config_name)
         shutil.copy("configs/cta-temp_run.sh", simtel_directory + "/sim_telarray/" +
@@ -83,6 +87,7 @@ class SimTelArrayConfig:
         shutil.copy("configs/array_trigger_temp.dat", simtel_directory + "/sim_telarray/" +
                     base_directory + "/array_trigger_temp.dat")
 
+        # Finally make telescope and multipipe configs
         config = self._make_telescope_configuration(simtel_directory)
         self._make_multi_configuration(simtel_directory, config)
 
@@ -104,8 +109,10 @@ class SimTelArrayConfig:
 
         f = open(simtel_directory + "/sim_telarray/" + filename, 'w')
 
+        # Take out boilerplate file
         ft = open("configs/simtel_template.cfg", 'r')
         gen = ft.read()
+        # And copy in reference to our telescope config
         f.write(gen)
         f.write(incfile)
 
@@ -125,6 +132,7 @@ class SimTelArrayConfig:
 
         f = open(filenm, 'w')
 
+        # Look over offsets to make commands for running simulations
         for off in self.offsets:
             wstr = 'env offset="' + str(off) + '" nsb="0.0" cfg=' + self.config_name + \
                    " cfgfile='" + template_config + "'" + \
