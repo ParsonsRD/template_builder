@@ -1,3 +1,8 @@
+"""
+This file is a simple example of how to generate templates through all sets of simulation.
+This should really only be taken as and example of how to use the classes provided,
+although should probably work without too much hassle on most systems
+"""
 from argparse import ArgumentParser
 import yaml
 from template_builder.corsika_input import CORSIKAInput
@@ -146,6 +151,9 @@ def generate_templates():
             from submit_SGE import SubmitSGE
         except ImportError:
             print("submit_SGE package required for cluster submission")
+        submit = SubmitSGE()
+        submit.submit_job_list(run_commands,
+                               telescope_input["config_name"]+"_temp")
     # Otherwise run on the command line
     else:
         for command in run_commands:
