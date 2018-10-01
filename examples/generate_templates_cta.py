@@ -9,9 +9,12 @@ from os import listdir
 
 def get_file_list(directories):
     """
+    Get the absolute locations of all files in a list of directories
 
-    :param directories:
-    :return:
+    :param directories: list
+        list of directories to check
+    :return: list
+        List of absolute file names
     """
     files_before_simulation = []
 
@@ -24,9 +27,12 @@ def get_file_list(directories):
 
 def parse_config(file_list):
     """
+    Parse required options from a list of configuration files
 
-    :param file_list:
-    :return:
+    :param file_list: list
+        list of config files to parse
+    :return: tuple
+        Dictionaries of the required simulation inputs
     """
 
     corsika_dict = dict()
@@ -34,10 +40,13 @@ def parse_config(file_list):
     fit_input = dict()
     telescope_input = dict()
 
+    # Loop over input config files
     for f in file_list:
+        # Open YAML file
         with open(f[0],"r") as yaml_file:
             yaml_file = yaml.load(yaml_file)
 
+        # Get the config options if they exist
         if "CORSIKA" in yaml_file:
             corsika_dict.update(yaml_file["CORSIKA"])
         if "ShowerSimulation" in yaml_file:
@@ -51,7 +60,15 @@ def parse_config(file_list):
 
 
 def write_corsika_input_cards(sim_telarray_directory, input_cards):
+    """
+    Save CORSIKA input cards from a dictionary in the directory provided
 
+    :param sim_telarray_directory: str
+        Base directory of sim_telarray package
+    :param input_cards:  dict
+
+    :return:
+    """
     input_file_names = list()
     for card in input_cards:
         input_name = "input_altitude%.1f_azimuth%.1f_energy%.3f.input" % card
@@ -66,7 +83,13 @@ def write_corsika_input_cards(sim_telarray_directory, input_cards):
 
 
 def generate_templates():
+    """
+    main() function to call all steps of template production in series
 
+    :return: None
+    """
+
+    # First Lets parse the command line
     parser = ArgumentParser()
     parser.add_argument('-c', '--config', action='append', nargs=1,
                         metavar="config file",
@@ -76,13 +99,16 @@ def generate_templates():
                         help='Name of output file')
 
     parser.add_argument('--simulate-only', dest='simulate_only', action='store_true')
+    parser.add_argument('--SGE', dest='SGE', action='store_true')
 
     args = parser.parse_args()
 
+    # Followed by any config files
     corsika_input, simulation_input, telescope_input, fit_input = \
         parse_config(args.config)
     output_file = args.output
 
+    # Generate our range of CORSIKA input cards
     corsika = CORSIKAInput(input_parameters=corsika_input)
 
     cards = corsika.get_input_cards(simulation_input["event_number"],
@@ -94,10 +120,11 @@ def generate_templates():
                                     simulation_input["diameter"],
                                     get_run_script(telescope_input["config_name"])
                                     )
-
+    # And write them in the sim_telarray directory
     corsika_input_file_names = \
         write_corsika_input_cards(telescope_input["sim_telarray_directory"], cards)
 
+    # Then create the required sim_telearray telescope config files
     sim_telarray_config = SimTelArrayConfig(telescope_input["config_name"],
                                             telescope_input["config_file"],
                                             float(corsika_input["OBSLEV"])/100,
@@ -108,21 +135,34 @@ def generate_templates():
         sim_telarray_config.run_setup(telescope_input["sim_telarray_directory"],
                                       corsika_input_file_names)
 
+    # Annoyingly sim_telarray doesn't let us choose our output file name (at least in
+    # this script setup). So we instead look in output directory now and after our
+    # simulations are complete and take the new files
     files_before = get_file_list(output_paths)
 
-    for command in run_commands:
-        print("Running", command)
-        os.system(command)
+    # Submit to SGE cluster if we can
+    if args.SGE:
+        try:
+            from submit_SGE import SubmitSGE
+        except ImportError:
+            print("submit_SGE package required for cluster submission")
+    # Otherwise run on the command line
+    else:
+        for command in run_commands:
+            print("Running", command)
+            os.system(command)
 
     print("Simulations complete")
 
     files_after = get_file_list(output_paths)
+    # Create a list of newly created files
     files_after = list(set(files_after) - set(files_before))
 
     if len(files_after) == 0:
         print("No new simulation files created! Quitting before fit")
         return
 
+    # Then generate our templates from these
     fitter = TemplateFitter()
     fitter.generate_templates(files_after, output_file, max_events=50000)
 
