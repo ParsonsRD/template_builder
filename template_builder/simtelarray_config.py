@@ -10,6 +10,17 @@ import shutil
 from pathlib import Path
 
 
+def get_run_script(config_name):
+    """
+
+    :param config_name: str
+        Name of the configuration
+    :return: str
+        Name of sim_telarray run script
+    """
+    return "run_sim_template_" + config_name
+
+
 class SimTelArrayConfig:
 
     def __init__(self, config_name, config_file, altitude, atmospheric_profile,
@@ -44,15 +55,15 @@ class SimTelArrayConfig:
             Base directory of sim_telarray package
         :param corsika_input: list
             list of locations of CORSIKA input cards to pass through to simulations
-        :return: list
-            Commands to run simulations
+        :return: tuple
+            List of command to run sim_telarray and where to look for output
         """
 
         # First set up configuration
-        self.make_config(simtel_directory)
+        output_paths = self.make_config(simtel_directory)
 
         # Then generate command to run stuff
-        return self.make_run_command(simtel_directory, corsika_input)
+        return self.make_run_command(simtel_directory, corsika_input), output_paths
 
     def make_config(self, simtel_directory):
         """
@@ -61,27 +72,32 @@ class SimTelArrayConfig:
         :param simtel_directory: str
             Base directory of sim_telarray package
 
-        :return:
+        :return: list
+            list of output directories for sim_telarray files
         """
 
-        # Fist make the appropriate directories for the sim_telarray output
+        output_paths = []
+
+        # First make the appropriate directories for the sim_telarray output
         for off in self.offsets:
-            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/"+
+            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/" +
                          str(off)+"deg/Data/")
             path.mkdir(parents=True, exist_ok=True)
+            output_paths.append(simtel_directory + "/Data/sim_telarray/"+
+                                self.config_name+"/" + str(off)+"deg/Data/")
 
-            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/"+
+            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/" +
                          str(off)+"deg/Log/")
             path.mkdir(parents=True, exist_ok=True)
 
-            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/"+
+            path = Path(simtel_directory + "/Data/sim_telarray/"+self.config_name+"/" +
                          str(off)+"deg/Histograms/")
             path.mkdir(parents=True, exist_ok=True)
 
         base_directory = self.config_file.rsplit('/', 1)[0]
         # Then copy into sim_telarray the config files
         shutil.copy("configs/run_sim_template", simtel_directory + "/sim_telarray/" +
-                    "/run_sim_template_" + self.config_name)
+                    get_run_script(self.config_name))
         shutil.copy("configs/cta-temp_run.sh", simtel_directory + "/sim_telarray/" +
                     "/template_run_" + self.config_name + ".sh")
         shutil.copy("configs/array_trigger_temp.dat", simtel_directory + "/sim_telarray/" +
@@ -91,7 +107,7 @@ class SimTelArrayConfig:
         config = self._make_telescope_configuration(simtel_directory)
         self._make_multi_configuration(simtel_directory, config)
 
-        return
+        return output_paths
 
     def _make_telescope_configuration(self, simtel_directory):
         """
@@ -160,11 +176,12 @@ class SimTelArrayConfig:
 
         for input in corsika_input:
             run_string = "cd " + simtel_directory + "; "\
-                         "./examples_common.sh; " \
+                         "source examples_common.sh; " \
+                         "cd ${CORSIKA_DATA};" \
                          "${SIM_TELARRAY_PATH}/bin/corsika_autoinputs  " \
                          "--run ${CORSIKA_PATH}/corsika " \
-                         "-p ${CORSIKA_DATA}" + input + " || exit 1; " \
-                         "cd ${CORSIKA_DATA}"
+                         "-p ${CORSIKA_DATA} " + input
+
             commands.append(run_string)
 
         return commands
