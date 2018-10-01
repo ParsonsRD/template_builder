@@ -7,11 +7,14 @@ import numpy as np
 from ctapipe.coordinates import *
 import astropy.units as u
 
+particle_lookup = {"gamma": "1", "electron": "2", "proton": "3", "nitrogen": "1407",
+                   "silicon": "2814", "iron": "5626"}
+
 
 class CORSIKAInput:
 
     def __init__(self, input_parameters, energy_scaling=False,
-                 event_scaling_index=-1, min_events=200):
+                 event_scaling_index=-1, min_events=200, primary_particle="gamma"):
         """
         Generates CORSIKA input cards for a
 
@@ -29,6 +32,7 @@ class CORSIKAInput:
         self.energy_scaling = energy_scaling
         self.event_scaling_index = event_scaling_index
         self.min_events = min_events
+        self.primary_particle = primary_particle
 
     @staticmethod
     def generate_common_input(input_parameters):
@@ -109,7 +113,8 @@ class CORSIKAInput:
 
         return simulation_dict
 
-    def create_corsika_input(self, simuation_dict, num_showers, cherenkov_output):
+    def create_corsika_input(self, simuation_dict, num_showers,
+                             diameter, cherenkov_output):
         """
         Create CORSIKA input cards for each of the simulation sets
 
@@ -117,6 +122,8 @@ class CORSIKAInput:
             Dictionary of telescope positions for each simulation set
         :param num_showers: str
             Number of showers to simulate
+        :param diameter: float
+            Diameter of telescope region
         :param cherenkov_output: str
             Name of sim_telarray run script
         :return: dict
@@ -125,9 +132,12 @@ class CORSIKAInput:
         card_dict = {}
         for zen, az, en in simuation_dict:
 
-            zenith_input = "THETA %.1f %.1f \n" % (zen, zen)
-            azimuth_input = "PHI %.1f %.1f \n" % (az, az)
-            energy_input = "EN %.1f %.1f \n" % (en * 100, en * 100)
+            particle_input = "PRMPAR %s \n" % \
+                             (particle_lookup[self.primary_particle.lower()])
+
+            zenith_input = "THETAP %.1f %.1f \n" % (zen, zen)
+            azimuth_input = "PHIP %.1f %.1f \n" % (az, az)
+            energy_input = "ERANGE %.1f %.1f \n" % (en * 1000, en * 1000)
 
             num = float(num_showers) * np.power(float(en), self.event_scaling_index)
             if num < self.min_events:
@@ -135,13 +145,16 @@ class CORSIKAInput:
 
             number_input = "NSHOW %d \n" % (num)
 
-            input_params = zenith_input + azimuth_input + energy_input + number_input
+            input_params = particle_input + zenith_input + azimuth_input + energy_input\
+                           + number_input
             tel_input = ""
             for tel in simuation_dict[(zen, az, en)]:
-                tel_input += "TELESCOPE %.1f %.1f %.1f \n" % (tel[0] * 100, tel[1] * 100,
-                                                              tel[2] * 100)
+                tel_input += "TELESCOPE %.1f %.1f %.1f %.1f\n" % (tel[0] * 100,
+                                                                  tel[1] * 100,
+                                                                  tel[2] * 100,
+                                                                  diameter * 100)
 
-            cherenkov_output_file = "TELFIL " + cherenkov_output
+            cherenkov_output_file = "TELFIL " + "|${SIM_TELARRAY_PATH}/"+cherenkov_output
 
             card_dict[(zen, az, en)] = input_params + tel_input + self.common_input + \
                                        cherenkov_output_file
@@ -149,7 +162,8 @@ class CORSIKAInput:
         return card_dict
 
     def get_input_cards(self, num_showers, altitude, azimuth,
-                        energy, core_distance, rotation_angle, cherenkov_output):
+                        energy, core_distance, rotation_angle, diameter,
+                        cherenkov_output):
         """
         Create CORSIKA input cards for a given range of altitude, azimuth, energy,
         core distance and telescope rotation angle
@@ -166,6 +180,8 @@ class CORSIKAInput:
             Simulated core distance
         :param rotation_angle: ndarray
             simulated rotation angles
+        :param diameter: float
+            Diameter of telescope region
         :param cherenkov_output: str
             Name of sim_telarray run script
         :return: dict
@@ -174,4 +190,5 @@ class CORSIKAInput:
         sim_range = self.simulation_range(altitude, azimuth, energy,
                                           core_distance, rotation_angle)
 
-        return self.create_corsika_input(sim_range, num_showers, cherenkov_output)
+        return self.create_corsika_input(sim_range, num_showers, diameter,
+                                         cherenkov_output)
