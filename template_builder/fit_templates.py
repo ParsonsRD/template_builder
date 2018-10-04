@@ -3,7 +3,6 @@
 """
 import gzip
 import pickle
-import copy
 
 import astropy.units as u
 import numpy as np
@@ -37,7 +36,8 @@ def find_nearest_bin(array, value):
 class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000, verbose=False):
+                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 250, 17),
+                 verbose=False):
         """
 
         :param eff_fl: float
@@ -51,7 +51,7 @@ class TemplateFitter:
         """
 
         self.verbose = verbose
-        self.xmax_bins = np.linspace(-150, 250, 17)
+        self.xmax_bins = xmax_bins
         self.eff_fl = eff_fl
 
         self.bounds = bounds
@@ -60,8 +60,7 @@ class TemplateFitter:
 
         self.r1 = HESSIOR1Calibrator(None, None)
         self.dl0 = CameraDL0Reducer(None, None)
-        self.calibrator = CameraDL1Calibrator(None,
-                                         None)
+        self.calibrator = CameraDL1Calibrator(None, None)
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -87,9 +86,11 @@ class TemplateFitter:
         grd_tel = None
         num = 0 #Event counter
 
-        point = HorizonFrame(alt=70 * u.deg, az=180 * u.deg)
-
         for event in tqdm(source):
+
+            point = HorizonFrame(alt=event.mcheader.run_array_direction[1],
+                                 az=event.mcheader.run_array_direction[0])
+
             mc = event.mc
             # Create coordinate objects for source position
             src = HorizonFrame(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad)
@@ -137,8 +138,8 @@ class TemplateFitter:
                      self.eff_fl
 
                 camera_coord = CameraFrame(x=geom.pix_x, y=geom.pix_y, focal_length=fl)
-                nom_coord = camera_coord.transform_to(NominalFrame(array_direction=point,
-                                                                   pointing_direction=point))
+                nom_coord = camera_coord.transform_to(
+                    NominalFrame(array_direction=point, pointing_direction=point))
 
                 x = nom_coord.x.to(u.deg)
                 y = nom_coord.y.to(u.deg)
@@ -179,20 +180,24 @@ class TemplateFitter:
                 x_diff = mc_xmax - exp_xmax
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
+                zen = 90 - point.alt.to(u.deg).value
+                az = point.az.to(u.deg).value
+
                 # Now fill up our output with the X, Y and amplitude of our pixels
-                if (energy.value, int(impact), x_diff_bin) in templates.keys():
+                if (zen, az, energy.value, int(impact), x_diff_bin) in templates.keys():
                     # Extend the list if an entry already exists
-                    templates[(energy.value, int(impact), x_diff_bin)].extend(image)
-                    templates_xb[(energy.value, int(impact), x_diff_bin)].extend(
+                    templates[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                        image)
+                    templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
                         pix_x_rot.value)
-                    templates_yb[(energy.value, int(impact), x_diff_bin)].extend(
+                    templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
                         pix_y_rot.value)
                 else:
-                    templates[(energy.value, int(impact), x_diff_bin)] = \
+                    templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         image.tolist()
-                    templates_xb[(energy.value, int(impact), x_diff_bin)] = \
+                    templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         pix_x_rot.value.tolist()
-                    templates_yb[(energy.value, int(impact), x_diff_bin)] = \
+                    templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         pix_y_rot.value.tolist()
 
             if num > max_events:
