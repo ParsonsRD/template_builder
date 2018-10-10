@@ -1,18 +1,20 @@
 
 ShowerSimulation:
 
-  event_number: 1000
+  event_number: 200
   zenith_scaling: True
-  min_events: 200
+  min_events: 1
   scaling_index: -1.5
 
   altitude:
-        - 70
+        - 90
   azimuth:
-        - 0
-        - 180
+        - 166 # Subtract the 14 deg B field rotation
 
   energy_bins:
+        - 7.94328235e-02
+        - 1.25892541e-01
+        - 1.99526231e-01
         - 3.16227766e-01
         - 5.01187234e-01
         - 7.94328235e-01
@@ -54,13 +56,14 @@ ShowerSimulation:
 
   rotation_angle:
             - 0
-  diameter: 5
+
+  diameter: 15
 
 TelescopeSimulation:
 
-  config_name: "GCT"
-  config_file: "cfg/CTA/CTA-ULTRA6-SST-GCT.cfg"
-  atmosphere: "atm_trans_2150_1_10_0_0_2150.dat"
+  config_name: "HESS1_preupgrade"
+  config_file: "hess-phase2b.cfg"
+  atmosphere: "atm_trans_1835_1_10_0_0_1835.dat"
   sim_telarray_directory: "/Users/dparsons/Unix/Software/SimTelArray/std"
-  extra_options: ""
-  optical_efficiency: 1
+  extra_options: " -DCT1" # with HESS sims we need to specify telescope
+  optical_efficiency: 0.7

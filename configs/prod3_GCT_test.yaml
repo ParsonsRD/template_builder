@@ -38,6 +38,7 @@ ShowerSimulation:
 
   rotation_angle:
             - 0
+
   diameter: 5
 
 TelescopeSimulation:
@@ -46,3 +47,5 @@ TelescopeSimulation:
   config_file: "cfg/CTA/CTA-ULTRA6-SST-GCT.cfg"
   atmosphere: "atm_trans_2150_1_10_0_0_2150.dat"
   sim_telarray_directory: "/Users/dparsons/Unix/Software/SimTelArray/std"
+  extra_options: ""
+  optical_efficiency: 1
