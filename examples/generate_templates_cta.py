@@ -114,7 +114,8 @@ def generate_templates():
     output_file = args.output
 
     # Generate our range of CORSIKA input cards
-    corsika = CORSIKAInput(input_parameters=corsika_input)
+    corsika = CORSIKAInput(input_parameters=corsika_input,
+                           min_events=simulation_input["min_events"])
 
     cards = corsika.get_input_cards(simulation_input["event_number"],
                                     simulation_input["altitude"],
@@ -133,7 +134,9 @@ def generate_templates():
     sim_telarray_config = SimTelArrayConfig(telescope_input["config_name"],
                                             telescope_input["config_file"],
                                             float(corsika_input["OBSLEV"])/100,
-                                            telescope_input["atmosphere"]
+                                            telescope_input["atmosphere"],
+                                            telescope_input["optical_efficiency"],
+                                            telescope_input["extra_options"]
                                             )
 
     run_commands, output_paths = \

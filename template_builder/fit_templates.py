@@ -87,8 +87,10 @@ class TemplateFitter:
         num = 0 #Event counter
 
         for event in tqdm(source):
-
-            point = HorizonFrame(alt=event.mcheader.run_array_direction[1],
+            alt = event.mcheader.run_array_direction[1]
+            if alt > 90. * u.deg:
+                alt = 90. * u.deg
+            point = HorizonFrame(alt=alt,
                                  az=event.mcheader.run_array_direction[0])
 
             mc = event.mc

@@ -24,7 +24,7 @@ def get_run_script(config_name):
 class SimTelArrayConfig:
 
     def __init__(self, config_name, config_file, altitude, atmospheric_profile,
-                 offsets=[0.0]):
+                 optical_efficiency=1, extra_defines="", offsets=[0.0]):
         """
         :param config_name: str
             Name of the configuration
@@ -43,6 +43,9 @@ class SimTelArrayConfig:
         self.config_name = config_name
         self.config_file = config_file
         self.atmospheric_profile = atmospheric_profile
+
+        self.extra_defines = extra_defines
+        self.optical_efficiency = optical_efficiency
         self.altitude = altitude
 
         self.offsets = offsets
@@ -94,7 +97,11 @@ class SimTelArrayConfig:
                          str(off)+"deg/Histograms/")
             path.mkdir(parents=True, exist_ok=True)
 
-        base_directory = self.config_file.rsplit('/', 1)[0]
+        if "/" in self.config_file:
+            base_directory = self.config_file.rsplit('/', 1)[0]
+        else:
+            base_directory = ""
+
         # Then copy into sim_telarray the config files
         shutil.copy("configs/run_sim_template", simtel_directory + "/sim_telarray/" +
                     get_run_script(self.config_name))
@@ -118,9 +125,13 @@ class SimTelArrayConfig:
         :return: str
             Locations of the telescope configuration
         """
-        base_directory = self.config_file.rsplit('/', 1)[0]
+        if "/" in self.config_file:
+            base_directory = self.config_file.rsplit('/', 1)[0] + "/"
+        else:
+            base_directory = ""
+
         filename = base_directory + \
-                   "/Template_Configuration_" + self.config_name + ".cfg"
+                   "Template_Configuration_" + self.config_name + ".cfg"
         incfile = "#include " + self.config_file
 
         f = open(simtel_directory + "/sim_telarray/" + filename, 'w')
@@ -153,8 +164,15 @@ class SimTelArrayConfig:
             wstr = 'env offset="' + str(off) + '" nsb="0.0" cfg=' + self.config_name + \
                    " cfgfile='" + template_config + "'" + \
                    " transmission=" + self.atmospheric_profile + \
-                   " extra_config='-C altitude="+ str(self.altitude) + "'" + \
-                   " ./template_run_" + self.config_name + ".sh"
+                   " extra_config='-C altitude=" + str(self.altitude) + \
+                   " -C MIRROR_DEGRADED_REFLECTION=" + \
+                   str(self.optical_efficiency)
+
+            if self.extra_defines is not "":
+                wstr += self.extra_defines
+            wstr += "'"
+            wstr += " ./template_run_" + self.config_name + ".sh"
+
             f.write(wstr)
             f.write("\n")
 
