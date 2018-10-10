@@ -8,6 +8,9 @@ required simulation set and where to look for the results
 """
 import shutil
 from pathlib import Path
+from os.path import dirname
+from inspect import getfile
+import template_builder
 
 
 def get_run_script(config_name):
@@ -102,12 +105,17 @@ class SimTelArrayConfig:
         else:
             base_directory = ""
 
+        # this is not nice...
+        package_dir = dirname(getfile(template_builder)) + "/../"
         # Then copy into sim_telarray the config files
-        shutil.copy("configs/run_sim_template", simtel_directory + "/sim_telarray/" +
+        shutil.copy(package_dir + "configs/run_sim_template",
+                    simtel_directory + "/sim_telarray/" +
                     get_run_script(self.config_name))
-        shutil.copy("configs/cta-temp_run.sh", simtel_directory + "/sim_telarray/" +
+        shutil.copy(package_dir + "configs/cta-temp_run.sh",
+                    simtel_directory + "/sim_telarray/" +
                     "/template_run_" + self.config_name + ".sh")
-        shutil.copy("configs/array_trigger_temp.dat", simtel_directory + "/sim_telarray/" +
+        shutil.copy(package_dir + "configs/array_trigger_temp.dat",
+                    simtel_directory + "/sim_telarray/" +
                     base_directory + "/array_trigger_temp.dat")
 
         # Finally make telescope and multipipe configs
