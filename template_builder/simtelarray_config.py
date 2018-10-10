@@ -144,8 +144,9 @@ class SimTelArrayConfig:
 
         f = open(simtel_directory + "/sim_telarray/" + filename, 'w')
 
+        package_dir = dirname(getfile(template_builder)) + "/../"
         # Take out boilerplate file
-        ft = open("configs/simtel_template.cfg", 'r')
+        ft = open(package_dir + "configs/simtel_template.cfg", 'r')
         gen = ft.read()
         # And copy in reference to our telescope config
         f.write(gen)
