@@ -313,7 +313,7 @@ class TemplateFitter:
             # For each entry loop forward over possible xmax entries to check if they
             # exist
             for xb in self.xmax_bins:
-                key_test = (key[0], key[1], xb)
+                key_test = (key[0], key[1], key[2], key[3], xb)
                 # keep looping until we have found the largest xmax value
                 if (key_test not in extended_templates.keys()) and \
                         (key_test not in templates.keys()):
@@ -330,7 +330,7 @@ class TemplateFitter:
             key_copy = 0
             # Now we just do the same in reverse
             for xb in reversed(self.xmax_bins):
-                key_test = (key[0], key[1], xb)
+                key_test = (key[0], key[1], key[2], key[3], xb)
                 if (key_test not in extended_templates.keys()) and \
                         (key_test not in templates.keys()):
                     min_key_bin.append(key_test)
@@ -357,41 +357,44 @@ class TemplateFitter:
             Extended image templates
         """
         keys = np.array(list(templates.keys()))
-        distances = np.unique(keys.T[1])
-        energies = np.unique(keys.T[0])
+        distances = np.unique(keys.T[3])
+        energies = np.unique(keys.T[2])
+        zeniths = np.unique(keys.T[0])
+        azimuths = np.unique(keys.T[1])
 
         extended_templates = dict()
+        for zen in zeniths:
+            for az in azimuths:
+                for en in energies:
+                    for xmax in self.xmax_bins:
+                        i = 0
+                        distance_list = list()
+                        for dist in distances[0:]:
+                            key = (en, dist, xmax)
+                            if key not in templates.keys():
+                                break
+                            else:
+                                distance_list.append(templates[key])
+                                i += 1
 
-        for en in energies:
-            for xmax in self.xmax_bins:
-                i = 0
-                distance_list = list()
-                for dist in distances[0:]:
-                    key = (en, dist, xmax)
-                    if key not in templates.keys():
-                        break
-                    else:
-                        distance_list.append(templates[key])
-                        i += 1
+                        num_dists = len(distance_list)
+                        if num_dists > 1 and num_dists < len(distances):
+                            distance_list = np.array(distance_list)
 
-                num_dists = len(distance_list)
-                if num_dists > 1 and num_dists < len(distances):
-                    distance_list = np.array(distance_list)
+                            diff = len(distances) - len(distance_list)
 
-                    diff = len(distances) - len(distance_list)
+                            if diff > additional_bins:
+                                diff = additional_bins
+                            for j in range(i, i + diff):
+                                interp = interp1d(distances[0:i], distance_list, axis=0,
+                                                  bounds_error=False,
+                                                  fill_value="extrapolate", kind="linear")
 
-                    if diff > additional_bins:
-                        diff = additional_bins
-                    for j in range(i, i + diff):
-                        interp = interp1d(distances[0:i], distance_list, axis=0,
-                                          bounds_error=False,
-                                          fill_value="extrapolate", kind="linear")
+                                int_val = interp(distances[j])
+                                int_val[int_val < 0] = 0
+                                key = (zen, az, en, distances[j], xmax)
 
-                        int_val = interp(distances[j])
-                        int_val[int_val < 0] = 0
-                        key = (en, distances[j], xmax)
-
-                        extended_templates[key] = int_val
+                                extended_templates[key] = int_val
 
         templates.update(extended_templates)
 
