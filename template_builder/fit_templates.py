@@ -241,7 +241,7 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in amplitude:
+        for key in tqdm(amplitude):
             if self.verbose and first:
                 print("Energy", key[2] ,"TeV")
                 first = False
