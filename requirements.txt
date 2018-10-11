@@ -1,0 +1,7 @@
+-e git+https://github.com/ParsonsRD/submit_SGE.git#egg=submit_SGE
+yaml
+ctapipe
+sklearn
+scipy
+numpy
+tqdm
