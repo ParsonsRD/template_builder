@@ -244,7 +244,7 @@ class TemplateFitter:
             if self.verbose and first:
                 print("Energy", key[2] ,"TeV")
                 first = False
-                
+
             amp = np.array(amplitude[key])
 
             # Skip if we do not have enough image pixels
@@ -262,7 +262,7 @@ class TemplateFitter:
             nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
             nn_out[np.isinf(nn_out)] = 0
 
-            templates_out[(key[0], key[1], key[2])] = nn_out
+            templates_out[(key[0], key[1], key[2], key[3], key[4])] = nn_out
 
         return templates_out
 
