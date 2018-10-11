@@ -81,6 +81,9 @@ class TemplateFitter:
         templates_xb = dict() # Rotated X position
         templates_yb = dict() # Rotated Y positions
 
+        if self.verbose:
+            print("Reading", filename.strip())
+
         source = hessio_event_source(filename.strip())
 
         grd_tel = None
@@ -206,6 +209,7 @@ class TemplateFitter:
                 return templates, templates_xb, templates_yb
 
             num += 1
+        source.close()
 
         return templates, templates_xb, templates_yb
 
@@ -223,6 +227,8 @@ class TemplateFitter:
             Dictionary of image templates
         """
 
+        if self.verbose:
+            print("Fitting Templates")
         # Create output dictionary
         templates_out = dict()
 
@@ -232,8 +238,13 @@ class TemplateFitter:
         xx, yy = np.meshgrid(x, y)
         grid = np.vstack((xx.ravel(), yy.ravel()))
 
+        first = True
         # Loop over all templates
         for key in amplitude:
+            if self.verbose and first:
+                print("Energy", key[2] ,"TeV")
+                first = False
+                
             amp = np.array(amplitude[key])
 
             # Skip if we do not have enough image pixels
@@ -273,7 +284,7 @@ class TemplateFitter:
         nodes = (32, 32, 32, 32, 32, 32, 32, 32, 32)
         model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                              max_iter=10000, tol=0,
-                             early_stopping=True, verbose=True)
+                             early_stopping=True, verbose=False)
 
         model.fit(pixel_pos.T, amp)
 
