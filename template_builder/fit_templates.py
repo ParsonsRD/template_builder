@@ -100,7 +100,7 @@ class TemplateFitter:
             # Create coordinate objects for source position
             src = HorizonFrame(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad)
             # And transform into nominal system (where we store our templates)
-            source = src.transform_to(NominalFrame(array_direction=point))
+            source_direction= src.transform_to(NominalFrame(array_direction=point))
 
             # Perform calibration of images
             self.r1.calibrate(event)
@@ -174,7 +174,8 @@ class TemplateFitter:
                 # now rotate and translate our images such that they lie on top of one
                 # another
                 pix_x_rot, pix_y_rot = \
-                    ImPACTReconstructor.rotate_translate(x, y, source.x, source.y, phi)
+                    ImPACTReconstructor.rotate_translate(x, y, source_direction.x,
+                                                         source_direction.y, phi)
                 pix_x_rot *= -1
 
                 # Store simulated Xmax
