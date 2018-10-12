@@ -166,7 +166,7 @@ class TemplateFitter:
                 phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
                                  (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
                       180 * u.deg
-                phi -= self.rotation_angle
+                phi += self.rotation_angle
 
                 # And the impact distance of the shower
                 impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
