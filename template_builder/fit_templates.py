@@ -35,8 +35,8 @@ def find_nearest_bin(array, value):
 
 class TemplateFitter:
 
-    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 250, 17),
+    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(300, 150),
+                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  verbose=False):
         """
 
@@ -263,7 +263,8 @@ class TemplateFitter:
             nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
             nn_out[np.isinf(nn_out)] = 0
 
-            templates_out[(key[0], key[1], key[2], key[3], key[4])] = nn_out
+            templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
+                nn_out.astype(np.float32)
 
         return templates_out
 
