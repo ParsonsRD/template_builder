@@ -37,7 +37,7 @@ class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(300, 150),
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
-                 verbose=False):
+                 verbose=False, rotation_angle=0 * u.deg):
         """
 
         :param eff_fl: float
@@ -61,6 +61,7 @@ class TemplateFitter:
         self.r1 = HESSIOR1Calibrator(None, None)
         self.dl0 = CameraDL0Reducer(None, None)
         self.calibrator = CameraDL1Calibrator(None, None)
+        self.rotation_angle = rotation_angle
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -165,6 +166,7 @@ class TemplateFitter:
                 phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
                                  (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
                       180 * u.deg
+                phi -= self.rotation_angle
 
                 # And the impact distance of the shower
                 impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
