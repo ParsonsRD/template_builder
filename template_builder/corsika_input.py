@@ -131,6 +131,8 @@ class CORSIKAInput:
         """
         card_dict = {}
         for zen, az, en in simuation_dict:
+            if "ARRANG" in self.common_input.keys():
+                az -= float(self.common_input["ARRANG"])
 
             particle_input = "PRMPAR %s \n" % \
                              (particle_lookup[self.primary_particle.lower()])

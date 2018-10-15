@@ -180,15 +180,16 @@ class TemplateFitter:
                                                          source_direction.y, phi)
                 pix_x_rot *= -1
 
+                zen = 90 - point.alt.to(u.deg).value
+
                 # Store simulated Xmax
-                mc_xmax = event.mc.x_max.value / np.cos(20 * u.deg)
+                mc_xmax = event.mc.x_max.value / np.cos(zen)
 
                 # Calc difference from expected Xmax (for gammas)
                 exp_xmax = 300 + 93 * np.log10(energy.value)
                 x_diff = mc_xmax - exp_xmax
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
-                zen = 90 - point.alt.to(u.deg).value
                 az = point.az.to(u.deg).value
 
                 # Now fill up our output with the X, Y and amplitude of our pixels
@@ -245,7 +246,7 @@ class TemplateFitter:
         # Loop over all templates
         for key in tqdm(amplitude):
             if self.verbose and first:
-                print("Energy", key[2] ,"TeV")
+                print("Energy", key[2], "TeV")
                 first = False
 
             amp = np.array(amplitude[key])
