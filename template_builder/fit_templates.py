@@ -361,7 +361,7 @@ class TemplateFitter:
             Extended image templates
         """
         keys = np.array(list(templates.keys()))
-        distances = np.unique(keys.T[3])
+        distances = np.sort(np.unique(keys.T[3]))
         energies = np.unique(keys.T[2])
         zeniths = np.unique(keys.T[0])
         azimuths = np.unique(keys.T[1])
@@ -373,8 +373,12 @@ class TemplateFitter:
                     for xmax in self.xmax_bins:
                         i = 0
                         distance_list = list()
+                        if distances[0] is not 0.:
+                            extended_templates[(zen, az, en, 0, xmax)] = \
+                                templates[(zen, az, en, distances[0], xmax)]
+
                         for dist in distances[0:]:
-                            key = (en, dist, xmax)
+                            key = (zen, az, en, dist, xmax)
                             if key not in templates.keys():
                                 break
                             else:
