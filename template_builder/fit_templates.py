@@ -373,9 +373,14 @@ class TemplateFitter:
                     for xmax in self.xmax_bins:
                         i = 0
                         distance_list = list()
+
+                        # If we have no template at 0 copy the lowest value
                         if distances[0] is not 0.:
-                            extended_templates[(zen, az, en, 0, xmax)] = \
-                                templates[(zen, az, en, distances[0], xmax)]
+                            for d in distances:
+                                key = (zen, az, en, d, xmax)
+                                if key in templates.key():
+                                    extended_templates[(zen, az, en, 0, xmax)] = \
+                                        templates[key]
 
                         for dist in distances[0:]:
                             key = (zen, az, en, dist, xmax)
