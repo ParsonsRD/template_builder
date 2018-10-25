@@ -217,7 +217,7 @@ class TemplateFitter:
 
         return templates, templates_xb, templates_yb
 
-    def fit_templates(self, amplitude, x_pos, y_pos):
+    def fit_templates(self, amplitude, x_pos, y_pos, make_varience_template):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -235,6 +235,7 @@ class TemplateFitter:
             print("Fitting Templates")
         # Create output dictionary
         templates_out = dict()
+        variance_templates_out = dict()
 
         # Create grid over which to evaluate our fit
         x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
@@ -269,7 +270,18 @@ class TemplateFitter:
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
 
-        return templates_out
+            if make_varience_template:
+                predicted_values = model.predict(pixel_pos.T)
+                variance = np.power(amp-predicted_values, 2)
+                model_variance = self.perform_fit(variance, pixel_pos)
+                nn_out_variance = model_variance.predict(grid.T)
+                nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
+                nn_out_variance[np.isinf(nn_out)] = 0
+
+                variance_templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
+                    nn_out_variance.astype(np.float32)
+
+        return templates_out, variance_templates_out
 
     @staticmethod
     def perform_fit(amp, pixel_pos):
@@ -378,7 +390,7 @@ class TemplateFitter:
                         if distances[0] is not 0.:
                             for d in distances:
                                 key = (zen, az, en, d, xmax)
-                                if key in templates.key():
+                                if key in templates.keys():
                                     extended_templates[(zen, az, en, 0, xmax)] = \
                                         templates[key]
 
@@ -420,14 +432,16 @@ class TemplateFitter:
 
         return templates
 
-    def generate_templates(self, file_list, output_file, extend_range=True,
-                           max_events=1e9):
+    def generate_templates(self, file_list, output_file, variance_output_file=None,
+                           extend_range=True, max_events=1e9):
         """
 
         :param file_list: list
             List of sim_telarray input files
         :param output_file: string
             Output file name
+        :param variance_output_file: string
+            Output file name of variance templates
         :param extend_range: bool
             Extend range of the templates beyond simulations
         :param max_events: int
@@ -436,23 +450,38 @@ class TemplateFitter:
             Dictionary of image templates
 
         """
+
+        make_variance = variance_output_file is not None
+
         templates = dict()
+        variance_templates = dict()
 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-            file_templates = self.fit_templates(*pix_lists)
-
+            file_templates, file_variance_templates = self.fit_templates(*pix_lists,
+                                                                         make_variance)
             templates.update(file_templates)
+
+            if make_variance:
+                variance_templates.update(file_variance_templates)
 
             pix_lists = None
             file_templates = None
+            file_variance_templates = None
 
         # Extend coverage of the templates by extrapolation if requested
         if extend_range:
             templates = self.extend_template_coverage(templates)
+            if make_variance:
+                variance_templates = self.extend_template_coverage(variance_templates)
 
         file_handler = gzip.open(output_file, "wb")
         pickle.dump(templates, file_handler)
         file_handler.close()
 
-        return templates
+        if make_variance:
+            file_handler = gzip.open(variance_output_file, "wb")
+            pickle.dump(variance_templates, file_handler)
+            file_handler.close()
+
+        return templates, variance_templates
