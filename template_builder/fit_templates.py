@@ -388,11 +388,13 @@ class TemplateFitter:
 
                         # If we have no template at 0 copy the lowest value
                         if distances[0] is not 0.:
+                            copied = False
                             for d in distances:
                                 key = (zen, az, en, d, xmax)
-                                if key in templates.keys():
+                                if key in templates.keys() and not copied:
                                     extended_templates[(zen, az, en, 0, xmax)] = \
                                         templates[key]
+                                    copied = True
 
                         for dist in distances[0:]:
                             key = (zen, az, en, dist, xmax)

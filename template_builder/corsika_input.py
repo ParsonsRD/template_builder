@@ -68,6 +68,10 @@ class CORSIKAInput:
             Dictiontary of telescope position for each simulation required
         """
 
+        arrang = 0
+        if "ARRANG" in self.input_parameters.keys():
+            arrang = float(self.input_parameters["ARRANG"])
+
         # First lets make sure everything is an array
         altitude = np.array(altitude)
         azimuth = np.array(azimuth)
@@ -92,7 +96,7 @@ class CORSIKAInput:
         for alt in np.nditer(altitude):
             for az in np.nditer(azimuth):
                 # We will need this later for coordinate conversions
-                horizon_system = HorizonFrame(alt=alt*u.deg, az=az*u.deg)
+                horizon_system = HorizonFrame(alt=alt*u.deg, az=az*u.deg - arrang*u.deg)
 
                 # Scale the simulated energies if requested
                 if self.energy_scaling:
@@ -131,8 +135,6 @@ class CORSIKAInput:
         """
         card_dict = {}
         for zen, az, en in simuation_dict:
-            if "ARRANG" in self.common_input.keys():
-                az -= float(self.common_input["ARRANG"])
 
             particle_input = "PRMPAR %s \n" % \
                              (particle_lookup[self.primary_particle.lower()])
