@@ -298,7 +298,7 @@ class TemplateFitter:
 
         # We need a large number of layers to get this fit right
 
-        nodes = (32, 32, 32, 32, 32, 32, 32, 32, 32)
+        nodes = (64, 64, 64, 64, 64, 64, 64, 64, 64)
         model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                              max_iter=10000, tol=0,
                              early_stopping=True, verbose=False)
