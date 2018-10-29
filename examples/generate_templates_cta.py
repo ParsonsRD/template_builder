@@ -174,7 +174,7 @@ def generate_templates():
         return
 
     # Then generate our templates from these
-    fitter = TemplateFitter()
+    fitter = TemplateFitter(min_fit_pixels=2000)
     fitter.generate_templates(files_after, output_file, max_events=50000)
 
     return

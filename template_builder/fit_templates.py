@@ -375,7 +375,7 @@ class TemplateFitter:
         keys = np.array(list(templates.keys()))
         if len(list(templates.keys())) < 1:
             return templates
-        
+
         distances = np.sort(np.unique(keys.T[3]))
         energies = np.unique(keys.T[2])
         zeniths = np.unique(keys.T[0])
