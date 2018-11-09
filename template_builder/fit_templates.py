@@ -183,7 +183,7 @@ class TemplateFitter:
                 zen = 90 - point.alt.to(u.deg).value
 
                 # Store simulated Xmax
-                mc_xmax = event.mc.x_max.value / np.cos(zen)
+                mc_xmax = event.mc.x_max.value / np.cos(np.deg2rad(zen))
 
                 # Calc difference from expected Xmax (for gammas)
                 exp_xmax = 300 + 93 * np.log10(energy.value)

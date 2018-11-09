@@ -100,7 +100,7 @@ class CORSIKAInput:
 
                 # Scale the simulated energies if requested
                 if self.energy_scaling:
-                    energy = np.cos(np.deg2rad(90-alt)) * energy
+                    energy = energy / np.cos(np.deg2rad(90-alt))
 
                 for en in np.nditer(energy):
                     # We define our core distance in the tilted system, but when we
