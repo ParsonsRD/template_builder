@@ -272,9 +272,11 @@ class TemplateFitter:
 
             if make_varience_template:
                 predicted_values = model.predict(pixel_pos.T)
-                variance = np.power(amp-predicted_values, 2)
+                # Take absolute and square after as the NN fits the squared deviation
+                # This is important due to the 1 sided distribution
+                variance = np.abs(amp-predicted_values)
                 model_variance = self.perform_fit(variance, pixel_pos)
-                nn_out_variance = model_variance.predict(grid.T)
+                nn_out_variance = np.power(model_variance.predict(grid.T), 2)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
 
