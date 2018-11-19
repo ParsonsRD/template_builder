@@ -13,7 +13,6 @@ from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame, HorizonFrame
 from ctapipe.io.hessio import hessio_event_source
 from ctapipe.reco import ImPACTReconstructor
-from sklearn.neural_network import MLPRegressor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
@@ -37,7 +36,7 @@ class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(300, 150),
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
-                 verbose=False, rotation_angle=0 * u.deg):
+                 verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
         """
 
         :param eff_fl: float
@@ -62,6 +61,8 @@ class TemplateFitter:
         self.dl0 = CameraDL0Reducer(None, None)
         self.calibrator = CameraDL1Calibrator(None, None)
         self.rotation_angle = rotation_angle
+
+        self.training_library = training_library
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -285,8 +286,7 @@ class TemplateFitter:
 
         return templates_out, variance_templates_out
 
-    @staticmethod
-    def perform_fit(amp, pixel_pos):
+    def perform_fit(self, amp, pixel_pos, nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -300,12 +300,34 @@ class TemplateFitter:
 
         # We need a large number of layers to get this fit right
 
-        nodes = (64, 64, 64, 64, 64, 64, 64, 64, 64)
-        model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
-                             max_iter=10000, tol=0,
-                             early_stopping=True, verbose=False)
+        if self.training_library == "sklearn":
+            from sklearn.neural_network import MLPRegressor
 
-        model.fit(pixel_pos.T, amp)
+            model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
+                                 max_iter=10000, tol=0,
+                                 early_stopping=True, verbose=False)
+            model.fit(pixel_pos.T, amp)
+
+        elif self.training_library == "keras":
+            from keras.models import Sequential
+            from keras.layers import Dense, Activation
+            import keras
+
+            model = Sequential()
+            model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
+
+            for n in nodes[1:]:
+                model.add(Dense(n, activation="relu"))
+                model.add(Dense(1, activation='linear'))
+                model.compile(loss='mse', optimizer="adam", metrics=['accuracy'])
+            stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                     min_delta=0.0,
+                                                     patience=50,
+                                                    verbose=2, mode='auto')
+
+            model.fit(pixel_pos.T, amp, epochs=10000,
+                            batch_size=10000,
+                            callbacks=[stopping], validation_split=0.1, verbose=1)
 
         return model
 
