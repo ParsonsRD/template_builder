@@ -286,7 +286,8 @@ class TemplateFitter:
 
         return templates_out, variance_templates_out
 
-    def perform_fit(self, amp, pixel_pos, nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
+    def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
+                    nodes=(64, 64, 64, 64, 64,64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -294,19 +295,30 @@ class TemplateFitter:
             Pixel amplitudes
         :param pixel_pos: ndarray
             Pixel XY coordinate format (N, 2)
+        :param max_fitpoints: int
+            Maximum number of points to include in MLP fit
+        :param nodes: tuple
+            Node layout of MLP
         :return: MLP
             Fitted MLP model
         """
+        pixel_pos = pixel_pos.T
 
+        # If we put a limit on this then randomly choose points
+        if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
+            indices = np.arange(amp.shape[0])
+            np.random.shuffle(indices)
+            amp = amp[indices[:max_fitpoints]]
+            pixel_pos = pixel_pos[indices[:max_fitpoints]]
+            
         # We need a large number of layers to get this fit right
-
         if self.training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=10000, tol=0,
                                  early_stopping=True, verbose=False)
-            model.fit(pixel_pos.T, amp)
+            model.fit(pixel_pos, amp)
 
         elif self.training_library == "keras":
             from keras.models import Sequential
@@ -325,9 +337,9 @@ class TemplateFitter:
                                                      patience=50,
                                                     verbose=2, mode='auto')
 
-            model.fit(pixel_pos.T, amp, epochs=10000,
-                            batch_size=10000,
-                            callbacks=[stopping], validation_split=0.1, verbose=1)
+            model.fit(pixel_pos, amp, epochs=10000,
+                      batch_size=10000,
+                      callbacks=[stopping], validation_split=0.1, verbose=0)
 
         return model
 
@@ -462,7 +474,7 @@ class TemplateFitter:
         return templates
 
     def generate_templates(self, file_list, output_file, variance_output_file=None,
-                           extend_range=True, max_events=1e9):
+                           extend_range=True, max_events=1e9, max_fitpoints=0):
         """
 
         :param file_list: list
@@ -475,6 +487,8 @@ class TemplateFitter:
             Extend range of the templates beyond simulations
         :param max_events: int
             Maximum number of events to process
+        :param max_fitpoints: int
+            Maximum number of points to include in the MLP fit
         :return: dict
             Dictionary of image templates
 
@@ -488,7 +502,8 @@ class TemplateFitter:
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
             file_templates, file_variance_templates = self.fit_templates(*pix_lists,
-                                                                         make_variance)
+                                                                         make_variance,
+                                                                         max_fitpoints)
             templates.update(file_templates)
 
             if make_variance:
