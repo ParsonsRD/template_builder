@@ -310,7 +310,7 @@ class TemplateFitter:
             np.random.shuffle(indices)
             amp = amp[indices[:max_fitpoints]]
             pixel_pos = pixel_pos[indices[:max_fitpoints]]
-            
+
         # We need a large number of layers to get this fit right
         if self.training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
@@ -474,7 +474,7 @@ class TemplateFitter:
         return templates
 
     def generate_templates(self, file_list, output_file, variance_output_file=None,
-                           extend_range=True, max_events=1e9, max_fitpoints=0):
+                           extend_range=True, max_events=1e9, max_fitpoints=None):
         """
 
         :param file_list: list
