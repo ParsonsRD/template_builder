@@ -218,7 +218,8 @@ class TemplateFitter:
 
         return templates, templates_xb, templates_yb
 
-    def fit_templates(self, amplitude, x_pos, y_pos, make_varience_template):
+    def fit_templates(self, amplitude, x_pos, y_pos,
+                      make_variance_template,  max_fitpoints=None):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -228,6 +229,10 @@ class TemplateFitter:
             Dictionary of x position for each template
         :param y_pos: dict
             Dictionary of y position for each template
+        :param make_variance_template: bool
+            Should we also make a template of variance
+        :param max_fitpoints: int
+            Maximum number of points to include in MLP fit
         :return: dict
             Dictionary of image templates
         """
@@ -261,7 +266,7 @@ class TemplateFitter:
             pixel_pos = np.vstack([np.array(x_pos[key]), np.array(y_pos[key])])
 
             # Fit with MLP
-            model = self.perform_fit(amp, pixel_pos)
+            model = self.perform_fit(amp, pixel_pos, max_fitpoints)
 
             # Evaluate MLP fit over our grid
             nn_out = model.predict(grid.T)
@@ -271,7 +276,7 @@ class TemplateFitter:
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
 
-            if make_varience_template:
+            if make_variance_template:
                 predicted_values = model.predict(pixel_pos.T)
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
