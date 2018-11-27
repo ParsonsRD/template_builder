@@ -151,18 +151,6 @@ class TemplateFitter:
                 x = nom_coord.x.to(u.deg)
                 y = nom_coord.y.to(u.deg)
 
-                # We only want to keep pixels that fall within the bounds of our
-                # final template
-                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                                      x < self.bounds[0][1] * u.deg)
-                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
-
-                # Make sure everythin is 32 bit
-                x = x[mask].astype(np.float32)
-                y = y[mask].astype(np.float32)
-                image = pmt_signal[mask].astype(np.float32)
-
                 # Calculate expected rotation angle of the image
                 phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
                                  (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
@@ -176,10 +164,22 @@ class TemplateFitter:
 
                 # now rotate and translate our images such that they lie on top of one
                 # another
-                pix_x_rot, pix_y_rot = \
+                x, y = \
                     ImPACTReconstructor.rotate_translate(x, y, source_direction.x,
                                                          source_direction.y, phi)
-                pix_x_rot *= -1
+                x *= -1
+
+                # We only want to keep pixels that fall within the bounds of our
+                # final template
+                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                                      x < self.bounds[0][1] * u.deg)
+                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+
+                # Make sure everythin is 32 bit
+                x = x[mask].astype(np.float32)
+                y = y[mask].astype(np.float32)
+                image = pmt_signal[mask].astype(np.float32)
 
                 zen = 90 - point.alt.to(u.deg).value
 
@@ -199,16 +199,16 @@ class TemplateFitter:
                     templates[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
                         image)
                     templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        pix_x_rot.value)
+                        x.value)
                     templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        pix_y_rot.value)
+                        y.value)
                 else:
                     templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         image.tolist()
                     templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        pix_x_rot.value.tolist()
+                        x.value.tolist()
                     templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        pix_y_rot.value.tolist()
+                        y.value.tolist()
 
             if num > max_events:
                 return templates, templates_xb, templates_yb
@@ -292,7 +292,7 @@ class TemplateFitter:
         return templates_out, variance_templates_out
 
     def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
-                    nodes=(64, 64, 64, 64, 64,64, 64, 64, 64)):
+                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -340,7 +340,7 @@ class TemplateFitter:
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
                                                      patience=50,
-                                                    verbose=2, mode='auto')
+                                                     verbose=2, mode='auto')
 
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=10000,
