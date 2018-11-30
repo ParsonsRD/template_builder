@@ -337,7 +337,7 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mean_absolute_deviation',
+            model.compile(loss='mean_absolute_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
