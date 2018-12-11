@@ -175,7 +175,8 @@ class SimTelArrayConfig:
                    " transmission=" + self.atmospheric_profile + \
                    " extra_config='-C altitude=" + str(self.altitude) + \
                    " -C MIRROR_DEGRADED_REFLECTION=" + \
-                   str(self.optical_efficiency)
+                   str(self.optical_efficiency) + \
+                   " -C ARRAY_TRIGGER=array_trigger_temp.dat "
 
             if self.extra_defines is not "":
                 wstr += self.extra_defines

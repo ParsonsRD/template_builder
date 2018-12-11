@@ -15,6 +15,7 @@ from ctapipe.io.hessio import hessio_event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
+from ctapipe.image import tailcuts_clean, dilate
 
 
 def find_nearest_bin(array, value):
@@ -79,9 +80,9 @@ class TemplateFitter:
         """
 
         # Create dictionaries to contain our output
-        templates = dict() # Pixel amplitude
-        templates_xb = dict() # Rotated X position
-        templates_yb = dict() # Rotated Y positions
+        templates = dict()  # Pixel amplitude
+        templates_xb = dict()  # Rotated X position
+        templates_yb = dict()  # Rotated Y positions
 
         if self.verbose:
             print("Reading", filename.strip())
@@ -89,7 +90,8 @@ class TemplateFitter:
         source = hessio_event_source(filename.strip())
 
         grd_tel = None
-        num = 0 #Event counter
+        num = 0  # Event counter
+        srcx, srcy = list(), list()
 
         for event in tqdm(source):
             alt = event.mcheader.run_array_direction[1]
@@ -102,7 +104,7 @@ class TemplateFitter:
             # Create coordinate objects for source position
             src = HorizonFrame(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad)
             # And transform into nominal system (where we store our templates)
-            source_direction= src.transform_to(NominalFrame(array_direction=point))
+            source_direction = src.transform_to(NominalFrame(array_direction=point))
 
             # Perform calibration of images
             self.r1.calibrate(event)
@@ -138,7 +140,7 @@ class TemplateFitter:
                 if len(event.dl1.tel[tel_id].image) > 1:
                     pmt_signal_lg = event.dl1.tel[tel_id].image[1]
                     pmt_signal[pmt_signal_lg > 200] = pmt_signal_lg[pmt_signal_lg > 200]
-
+                #                print("max_signal", np.max(pmt_signal))
                 # Get pixel coordinates and convert to the nominal system
                 geom = event.inst.subarray.tel[tel_id].camera
                 fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
@@ -159,11 +161,14 @@ class TemplateFitter:
 
                 # And the impact distance of the shower
                 impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
-                                 np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)).\
+                                 np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
                     to(u.m).value
 
                 # now rotate and translate our images such that they lie on top of one
                 # another
+                # print(x, y, source_direction)
+                #                x, y = np.zeros_like(x), np.zeros_like(y)
+
                 x, y = \
                     ImPACTReconstructor.rotate_translate(x, y, source_direction.x,
                                                          source_direction.y, phi)
@@ -171,26 +176,35 @@ class TemplateFitter:
 
                 # We only want to keep pixels that fall within the bounds of our
                 # final template
-                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                                      x < self.bounds[0][1] * u.deg)
-                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+                # mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                #                      x < self.bounds[0][1] * u.deg)
+                # mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                # mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+                mask = tailcuts_clean(geom, pmt_signal,
+                                      picture_thresh=10,
+                                      boundary_thresh=5,
+                                      min_number_picture_neighbors=1)
+
+                # Dilate around edges of image
+                for i in range(6):
+                    mask = dilate(geom, mask)
 
                 # Make sure everythin is 32 bit
                 x = x[mask].astype(np.float32)
                 y = y[mask].astype(np.float32)
                 image = pmt_signal[mask].astype(np.float32)
 
-                zen = 90 - point.alt.to(u.deg).value
-
+                zen = 90 - mc.alt.to(u.deg).value
                 # Store simulated Xmax
                 mc_xmax = event.mc.x_max.value / np.cos(np.deg2rad(zen))
 
                 # Calc difference from expected Xmax (for gammas)
                 exp_xmax = 300 + 93 * np.log10(energy.value)
                 x_diff = mc_xmax - exp_xmax
-                x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
+                x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
+                # print(mc_xmax,  np.cos(np.deg2rad(zen)), x_diff, x_diff_bin)
+                zen = 90 - point.alt.to(u.deg).value
                 az = point.az.to(u.deg).value
 
                 # Now fill up our output with the X, Y and amplitude of our pixels
@@ -214,12 +228,16 @@ class TemplateFitter:
                 return templates, templates_xb, templates_yb
 
             num += 1
+        #        import matplotlib.pyplot as plt
+        # plt.scatter(srcx, srcy)
+        #        plt.show()
+
         source.close()
 
         return templates, templates_xb, templates_yb
 
     def fit_templates(self, amplitude, x_pos, y_pos,
-                      make_variance_template,  max_fitpoints=None):
+                      make_variance_template, max_fitpoints=None):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -251,13 +269,13 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in tqdm(amplitude):
+        for key in tqdm(list(amplitude.keys())[:10]):
             if self.verbose and first:
                 print("Energy", key[2], "TeV")
                 first = False
 
             amp = np.array(amplitude[key])
-
+            print(len(amp), key)
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
                 continue
@@ -267,11 +285,20 @@ class TemplateFitter:
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, max_fitpoints)
+            if self.training_library == "loess":
+                nn_out = model(grid.T)
+                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+                nn_out[np.isinf(nn_out)] = 0
 
-            # Evaluate MLP fit over our grid
-            nn_out = model.predict(grid.T)
-            nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-            nn_out[np.isinf(nn_out)] = 0
+            #                import matplotlib.pyplot as plt
+            #                plt.imshow(nn_out)
+            #                plt.show()
+
+            else:
+                # Evaluate MLP fit over our grid
+                nn_out = model.predict(grid.T)
+                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+                nn_out[np.isinf(nn_out)] = 0
 
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
@@ -280,7 +307,7 @@ class TemplateFitter:
                 predicted_values = model.predict(pixel_pos.T)
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
-                variance = np.abs(amp-predicted_values)
+                variance = np.abs(amp - predicted_values)
                 model_variance = self.perform_fit(variance, pixel_pos)
                 nn_out_variance = np.power(model_variance.predict(grid.T), 2)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
@@ -318,12 +345,31 @@ class TemplateFitter:
 
         # We need a large number of layers to get this fit right
         if self.training_library == "sklearn":
-            from sklearn.neural_network import MLPRegressor
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=10000, tol=0,
-                                 early_stopping=True, verbose=False)
+                                 early_stopping=True, verbose=False,
+                                 n_iter_no_change=50)
             model.fit(pixel_pos, amp)
+
+        elif self.training_library == "KNN":
+
+            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
+            from sklearn.neural_network import MLPRegressor
+
+            model = RadiusNeighborsRegressor(radius=0.1, weights="distance")
+            model.fit(pixel_pos, amp)
+
+        elif self.training_library == "loess":
+            from loess.loess_2d import loess_2d
+            from scipy.interpolate import LinearNDInterpolator
+
+            model = loess_2d(pixel_pos.T[0], pixel_pos.T[1], amp, degree=2, frac=0.01,
+                             sigz=amp)
+            print(model)
+            lin = LinearNDInterpolator(pixel_pos, model[0])
+
+            return lin
 
         elif self.training_library == "keras":
             from keras.models import Sequential
@@ -341,11 +387,11 @@ class TemplateFitter:
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
-                                                     patience=50,
+                                                     patience=100,
                                                      verbose=2, mode='auto')
 
             model.fit(pixel_pos, amp, epochs=10000,
-                      batch_size=10000,
+                      batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
 
         return model
