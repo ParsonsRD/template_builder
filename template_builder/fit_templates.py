@@ -16,6 +16,7 @@ from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 from ctapipe.image import tailcuts_clean, dilate
+import matplotlib.pyplot as plt
 
 
 def find_nearest_bin(array, value):
@@ -35,7 +36,7 @@ def find_nearest_bin(array, value):
 
 class TemplateFitter:
 
-    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(300, 150),
+    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
         """
@@ -83,6 +84,8 @@ class TemplateFitter:
         templates = dict()  # Pixel amplitude
         templates_xb = dict()  # Rotated X position
         templates_yb = dict()  # Rotated Y positions
+        src_xb = dict()  # Rotated X position
+        src_yb = dict()  # Rotated Y positions
 
         if self.verbose:
             print("Reading", filename.strip())
@@ -92,7 +95,7 @@ class TemplateFitter:
         grd_tel = None
         num = 0  # Event counter
         srcx, srcy = list(), list()
-
+        sd = list()
         for event in tqdm(source):
             alt = event.mcheader.run_array_direction[1]
             if alt > 90. * u.deg:
@@ -106,6 +109,8 @@ class TemplateFitter:
             # And transform into nominal system (where we store our templates)
             source_direction = src.transform_to(NominalFrame(array_direction=point))
 
+#            print(sd)
+            
             # Perform calibration of images
             self.r1.calibrate(event)
             self.dl0.reduce(event)
@@ -125,6 +130,10 @@ class TemplateFitter:
                 tilt_tel = grd_tel.transform_to(
                     TiltedGroundFrame(pointing_direction=point))
 
+                                # Convert to tilted system
+            tilt_tel2 = grd_tel.transform_to(
+                TiltedGroundFrame(pointing_direction=src))
+                
             # Calculate core position in tilted system
             grd_core_true = GroundFrame(x=np.asarray(mc.core_x) * u.m,
                                         y=np.asarray(mc.core_y) * u.m,
@@ -132,9 +141,12 @@ class TemplateFitter:
             tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
                 pointing_direction=point))
 
+            sd.append((source_direction.x*source_direction.x +
+                           source_direction.y*source_direction.y).value)
             # Loop over triggered telescopes
             for tel_id in event.dl0.tels_with_data:
 
+                
                 #  Get pixel signal (make gain selection if we have 2 channels)
                 pmt_signal = event.dl1.tel[tel_id].image[0]
                 if len(event.dl1.tel[tel_id].image) > 1:
@@ -147,9 +159,10 @@ class TemplateFitter:
                      self.eff_fl
 
                 camera_coord = CameraFrame(x=geom.pix_x, y=geom.pix_y, focal_length=fl)
+#                print(camera_coord)
                 nom_coord = camera_coord.transform_to(
                     NominalFrame(array_direction=point, pointing_direction=point))
-
+#                print(nom_coord)
                 x = nom_coord.x.to(u.deg)
                 y = nom_coord.y.to(u.deg)
 
@@ -158,7 +171,6 @@ class TemplateFitter:
                                  (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
                       180 * u.deg
                 phi += self.rotation_angle
-
                 # And the impact distance of the shower
                 impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
                                  np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
@@ -166,7 +178,6 @@ class TemplateFitter:
 
                 # now rotate and translate our images such that they lie on top of one
                 # another
-                # print(x, y, source_direction)
                 #                x, y = np.zeros_like(x), np.zeros_like(y)
 
                 x, y = \
@@ -176,18 +187,28 @@ class TemplateFitter:
 
                 # We only want to keep pixels that fall within the bounds of our
                 # final template
-                # mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                #                      x < self.bounds[0][1] * u.deg)
-                # mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                # mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
-                mask = tailcuts_clean(geom, pmt_signal,
-                                      picture_thresh=10,
-                                      boundary_thresh=5,
+                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                                      x < self.bounds[0][1] * u.deg)
+                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+
+                mask510 = tailcuts_clean(geom, pmt_signal,
+                                      picture_thresh=5,
+                                      boundary_thresh=10,
                                       min_number_picture_neighbors=1)
+                amp_sum = np.sum(pmt_signal[mask510])
+#                print (amp_sum)
+                if amp_sum<60:
+                    continue
+                
+#                mask = tailcuts_clean(geom, pmt_signal,
+#                                      picture_thresh=7,
+#                                      boundary_thresh=4,
+#                                      min_number_picture_neighbors=1)
 
                 # Dilate around edges of image
-                for i in range(6):
-                    mask = dilate(geom, mask)
+#                for i in range(6):
+#                    mask = dilate(geom, mask)
 
                 # Make sure everythin is 32 bit
                 x = x[mask].astype(np.float32)
@@ -203,7 +224,7 @@ class TemplateFitter:
                 x_diff = mc_xmax - exp_xmax
 
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-                # print(mc_xmax,  np.cos(np.deg2rad(zen)), x_diff, x_diff_bin)
+                #x_diff_bin = find_nearest_bin(self.xmax_bins, 0)
                 zen = 90 - point.alt.to(u.deg).value
                 az = point.az.to(u.deg).value
 
@@ -216,6 +237,10 @@ class TemplateFitter:
                         x.value)
                     templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
                         y.value)
+                    src_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                        [source_direction.x.value])
+                    src_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                        [source_direction.y.value])
                 else:
                     templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         image.tolist()
@@ -223,21 +248,28 @@ class TemplateFitter:
                         x.value.tolist()
                     templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                         y.value.tolist()
+                    src_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                        [source_direction.x.value]
+                    src_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                        [source_direction.y.value]
 
             if num > max_events:
-                return templates, templates_xb, templates_yb
+#                print(len(sd))
+#                plt.hist(sd, bins=10)
+#                plt.show()
+                return templates, templates_xb, templates_yb, src_xb, src_yb
 
             num += 1
-        #        import matplotlib.pyplot as plt
-        # plt.scatter(srcx, srcy)
-        #        plt.show()
 
+#        plt.hist(sd, bins=10)
+#        plt.show()
+        
         source.close()
 
-        return templates, templates_xb, templates_yb
+        return templates, templates_xb, templates_yb, src_xb, src_yb
 
     def fit_templates(self, amplitude, x_pos, y_pos,
-                      make_variance_template, max_fitpoints=None):
+                      make_variance_template, max_fitpoints, src_x, src_y):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -269,7 +301,7 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in tqdm(list(amplitude.keys())[:10]):
+        for key in tqdm(list(amplitude.keys())):
             if self.verbose and first:
                 print("Energy", key[2], "TeV")
                 first = False
@@ -279,9 +311,16 @@ class TemplateFitter:
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
                 continue
+                
+            y = y_pos[key]
+            x = x_pos[key]
 
+#            plt.scatter(src_x[key],src_y[key])
+#            plt.scatter(x,y, c=amp)
+#            plt.show()
+            
             # Stack up pixel positions
-            pixel_pos = np.vstack([np.array(x_pos[key]), np.array(y_pos[key])])
+            pixel_pos = np.vstack([x,y])
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, max_fitpoints)
@@ -289,10 +328,6 @@ class TemplateFitter:
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
-
-            #                import matplotlib.pyplot as plt
-            #                plt.imshow(nn_out)
-            #                plt.show()
 
             else:
                 # Evaluate MLP fit over our grid
@@ -319,7 +354,8 @@ class TemplateFitter:
         return templates_out, variance_templates_out
 
     def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
-                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
+                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64)):
+#                    nodes=(64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -357,17 +393,16 @@ class TemplateFitter:
             from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
             from sklearn.neural_network import MLPRegressor
 
-            model = RadiusNeighborsRegressor(radius=0.1, weights="distance")
+            model = RadiusNeighborsRegressor(radius=0.02, weights="uniform")
             model.fit(pixel_pos, amp)
 
         elif self.training_library == "loess":
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
-
-            model = loess_2d(pixel_pos.T[0], pixel_pos.T[1], amp, degree=2, frac=0.01,
-                             sigz=amp)
-            print(model)
-            lin = LinearNDInterpolator(pixel_pos, model[0])
+            sel = amp!=0
+            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel], degree=3, frac=0.01)
+            print("here")
+            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
 
             return lin
 
@@ -383,11 +418,11 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mean_absolute_error',
+            model.compile(loss='mse',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
-                                                     patience=100,
+                                                     patience=50,
                                                      verbose=2, mode='auto')
 
             model.fit(pixel_pos, amp, epochs=10000,
@@ -554,9 +589,9 @@ class TemplateFitter:
 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-            file_templates, file_variance_templates = self.fit_templates(*pix_lists,
+            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],pix_lists[1],pix_lists[2],
                                                                          make_variance,
-                                                                         max_fitpoints)
+                                                                         max_fitpoints,pix_lists[3],pix_lists[4])
             templates.update(file_templates)
 
             if make_variance:
