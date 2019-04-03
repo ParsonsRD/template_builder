@@ -10,13 +10,13 @@ from ctapipe.calib.camera.dl0 import CameraDL0Reducer
 from ctapipe.calib.camera.dl1 import CameraDL1Calibrator
 from ctapipe.calib.camera.r1 import HESSIOR1Calibrator
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
-    TiltedGroundFrame, HorizonFrame
-from ctapipe.io.hessio import hessio_event_source
+    TiltedGroundFrame
+from astropy.coordinates import SkyCoord, AltAz
+from ctapipe.io.hessioeventsource import HESSIOEventSource
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 from ctapipe.image import tailcuts_clean, dilate
-import matplotlib.pyplot as plt
 
 
 def find_nearest_bin(array, value):
@@ -84,192 +84,159 @@ class TemplateFitter:
         templates = dict()  # Pixel amplitude
         templates_xb = dict()  # Rotated X position
         templates_yb = dict()  # Rotated Y positions
-        src_xb = dict()  # Rotated X position
-        src_yb = dict()  # Rotated Y positions
 
         if self.verbose:
             print("Reading", filename.strip())
 
-        source = hessio_event_source(filename.strip())
+        with HESSIOEventSource(input_url=filename.strip()) as source:
 
-        grd_tel = None
-        num = 0  # Event counter
-        srcx, srcy = list(), list()
-        sd = list()
-        for event in tqdm(source):
-            alt = event.mcheader.run_array_direction[1]
-            if alt > 90. * u.deg:
-                alt = 90. * u.deg
-            point = HorizonFrame(alt=alt,
-                                 az=event.mcheader.run_array_direction[0])
+            grd_tel = None
+            num = 0  # Event counter
 
-            mc = event.mc
-            # Create coordinate objects for source position
-            src = HorizonFrame(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad)
-            # And transform into nominal system (where we store our templates)
-            source_direction = src.transform_to(NominalFrame(array_direction=point))
+            for event in tqdm(source):
+                alt = event.mcheader.run_array_direction[1]
+                if alt > 90. * u.deg:
+                    alt = 90. * u.deg
+                point = SkyCoord(alt=alt, az=event.mcheader.run_array_direction[0],
+                                 frame=AltAz())
 
-#            print(sd)
-            
-            # Perform calibration of images
-            self.r1.calibrate(event)
-            self.dl0.reduce(event)
-            self.calibrator.calibrate(event)
+                mc = event.mc
+                # Create coordinate objects for source position
+                src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
+                               frame=AltAz())
+                # And transform into nominal system (where we store our templates)
+                source_direction = src.transform_to(NominalFrame(origin=point))
 
-            # Store simulated event energy
-            energy = mc.energy
+                # Perform calibration of images
+                self.r1.calibrate(event)
+                self.dl0.reduce(event)
+                self.calibrator.calibrate(event)
 
-            # Store ground position of all telescopes
-            # We only want to do this once, but has to be done in event loop
-            if grd_tel is None:
-                grd_tel = GroundFrame(x=event.inst.subarray.pos_x,
-                                      y=event.inst.subarray.pos_y,
-                                      z=event.inst.subarray.pos_z)
+                # Store simulated event energy
+                energy = mc.energy
 
-                # Convert to tilted system
-                tilt_tel = grd_tel.transform_to(
-                    TiltedGroundFrame(pointing_direction=point))
+                # Store ground position of all telescopes
+                # We only want to do this once, but has to be done in event loop
+                if grd_tel is None:
+                    grd_tel = event.inst.subarray.tel_coords
 
-                                # Convert to tilted system
-            tilt_tel2 = grd_tel.transform_to(
-                TiltedGroundFrame(pointing_direction=src))
-                
-            # Calculate core position in tilted system
-            grd_core_true = GroundFrame(x=np.asarray(mc.core_x) * u.m,
-                                        y=np.asarray(mc.core_y) * u.m,
-                                        z=np.asarray(0) * u.m)
-            tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
-                pointing_direction=point))
 
-            sd.append((source_direction.x*source_direction.x +
-                           source_direction.y*source_direction.y).value)
-            # Loop over triggered telescopes
-            for tel_id in event.dl0.tels_with_data:
+                    # Convert to tilted system
+                    tilt_tel = grd_tel.transform_to(
+                        TiltedGroundFrame(pointing_direction=point))
 
-                
-                #  Get pixel signal (make gain selection if we have 2 channels)
-                pmt_signal = event.dl1.tel[tel_id].image[0]
-                if len(event.dl1.tel[tel_id].image) > 1:
-                    pmt_signal_lg = event.dl1.tel[tel_id].image[1]
-                    pmt_signal[pmt_signal_lg > 200] = pmt_signal_lg[pmt_signal_lg > 200]
-                #                print("max_signal", np.max(pmt_signal))
-                # Get pixel coordinates and convert to the nominal system
-                geom = event.inst.subarray.tel[tel_id].camera
-                fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
-                     self.eff_fl
+                # Calculate core position in tilted system
+                grd_core_true = SkyCoord(x=np.asarray(mc.core_x) * u.m,
+                                         y=np.asarray(mc.core_y) * u.m,
+                                         z=np.asarray(0) * u.m, frame=GroundFrame())
 
-                camera_coord = CameraFrame(x=geom.pix_x, y=geom.pix_y, focal_length=fl)
-#                print(camera_coord)
-                nom_coord = camera_coord.transform_to(
-                    NominalFrame(array_direction=point, pointing_direction=point))
-#                print(nom_coord)
-                x = nom_coord.x.to(u.deg)
-                y = nom_coord.y.to(u.deg)
+                tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
+                    pointing_direction=point))
 
-                # Calculate expected rotation angle of the image
-                phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
-                                 (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
-                      180 * u.deg
-                phi += self.rotation_angle
-                # And the impact distance of the shower
-                impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
-                                 np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
-                    to(u.m).value
+                # Loop over triggered telescopes
+                for tel_id in event.dl0.tels_with_data:
 
-                # now rotate and translate our images such that they lie on top of one
-                # another
-                #                x, y = np.zeros_like(x), np.zeros_like(y)
 
-                x, y = \
-                    ImPACTReconstructor.rotate_translate(x, y, source_direction.x,
-                                                         source_direction.y, phi)
-                x *= -1
+                    #  Get pixel signal (make gain selection if we have 2 channels)
+                    pmt_signal = event.dl1.tel[tel_id].image[0]
+                    if len(event.dl1.tel[tel_id].image) > 1:
+                        pmt_signal_lg = event.dl1.tel[tel_id].image[1]
+                        pmt_signal[pmt_signal_lg > 200] = pmt_signal_lg[pmt_signal_lg > 200]
+                    #                print("max_signal", np.max(pmt_signal))
+                    # Get pixel coordinates and convert to the nominal system
+                    geom = event.inst.subarray.tel[tel_id].camera
+                    fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
+                         self.eff_fl
 
-                # We only want to keep pixels that fall within the bounds of our
-                # final template
-                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                                      x < self.bounds[0][1] * u.deg)
-                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+                    camera_coord = SkyCoord(x=geom.pix_x, y=geom.pix_y,
+                                            frame=CameraFrame(focal_length=fl,
+                                                              telescope_pointing=point))
 
-                mask510 = tailcuts_clean(geom, pmt_signal,
-                                      picture_thresh=5,
-                                      boundary_thresh=10,
-                                      min_number_picture_neighbors=1)
-                amp_sum = np.sum(pmt_signal[mask510])
-#                print (amp_sum)
-                if amp_sum<60:
-                    continue
-                
-#                mask = tailcuts_clean(geom, pmt_signal,
-#                                      picture_thresh=7,
-#                                      boundary_thresh=4,
-#                                      min_number_picture_neighbors=1)
+                    nom_coord = camera_coord.transform_to(
+                        NominalFrame(origin=point))
 
-                # Dilate around edges of image
-#                for i in range(6):
-#                    mask = dilate(geom, mask)
+                    x = nom_coord.delta_az.to(u.deg)
+                    y = nom_coord.delta_alt.to(u.deg)
 
-                # Make sure everythin is 32 bit
-                x = x[mask].astype(np.float32)
-                y = y[mask].astype(np.float32)
-                image = pmt_signal[mask].astype(np.float32)
+                    # Calculate expected rotation angle of the image
+                    phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
+                                     (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
+                          180 * u.deg
+                    phi += self.rotation_angle
+                    # And the impact distance of the shower
+                    impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
+                                     np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
+                        to(u.m).value
 
-                zen = 90 - mc.alt.to(u.deg).value
-                # Store simulated Xmax
-                mc_xmax = event.mc.x_max.value / np.cos(np.deg2rad(zen))
+                    # now rotate and translate our images such that they lie on top of one
+                    # another
+                    x, y = \
+                        ImPACTReconstructor.rotate_translate(x, y,
+                                                             source_direction.delta_az,
+                                                             source_direction.delta_alt,
+                                                             phi)
+                    x *= -1
 
-                # Calc difference from expected Xmax (for gammas)
-                exp_xmax = 300 + 93 * np.log10(energy.value)
-                x_diff = mc_xmax - exp_xmax
+                    # We only want to keep pixels that fall within the bounds of our
+                    # final template
+                    mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                                          x < self.bounds[0][1] * u.deg)
+                    mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                    mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
 
-                x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-                #x_diff_bin = find_nearest_bin(self.xmax_bins, 0)
-                zen = 90 - point.alt.to(u.deg).value
-                az = point.az.to(u.deg).value
+                    mask510 = tailcuts_clean(geom, pmt_signal,
+                                          picture_thresh=5,
+                                          boundary_thresh=10,
+                                          min_number_picture_neighbors=1)
+                    amp_sum = np.sum(pmt_signal[mask510])
 
-                # Now fill up our output with the X, Y and amplitude of our pixels
-                if (zen, az, energy.value, int(impact), x_diff_bin) in templates.keys():
-                    # Extend the list if an entry already exists
-                    templates[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        image)
-                    templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        x.value)
-                    templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        y.value)
-                    src_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        [source_direction.x.value])
-                    src_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                        [source_direction.y.value])
-                else:
-                    templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        image.tolist()
-                    templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        x.value.tolist()
-                    templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        y.value.tolist()
-                    src_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        [source_direction.x.value]
-                    src_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        [source_direction.y.value]
+                    if amp_sum<30:
+                        continue
 
-            if num > max_events:
-#                print(len(sd))
-#                plt.hist(sd, bins=10)
-#                plt.show()
-                return templates, templates_xb, templates_yb, src_xb, src_yb
+                    # Make sure everythin is 32 bit
+                    x = x[mask].astype(np.float32)
+                    y = y[mask].astype(np.float32)
+                    image = pmt_signal[mask].astype(np.float32)
 
-            num += 1
+                    zen = 90 - mc.alt.to(u.deg).value
+                    # Store simulated Xmax
+                    mc_xmax = event.mc.x_max.value / np.cos(np.deg2rad(zen))
 
-#        plt.hist(sd, bins=10)
-#        plt.show()
-        
-        source.close()
+                    # Calc difference from expected Xmax (for gammas)
+                    exp_xmax = 300 + 93 * np.log10(energy.value)
+                    x_diff = mc_xmax - exp_xmax
 
-        return templates, templates_xb, templates_yb, src_xb, src_yb
+                    x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
+
+                    zen = 90 - point.alt.to(u.deg).value
+                    az = point.az.to(u.deg).value
+
+                    # Now fill up our output with the X, Y and amplitude of our pixels
+                    if (zen, az, energy.value, int(impact), x_diff_bin) in templates.keys():
+                        # Extend the list if an entry already exists
+                        templates[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                            image)
+                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                            x.value)
+                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
+                            y.value)
+                    else:
+                        templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            image.tolist()
+                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            x.value.tolist()
+                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            y.value.tolist()
+
+                if num > max_events:
+                    return templates, templates_xb, templates_yb
+
+                num += 1
+
+        return templates, templates_xb, templates_yb
 
     def fit_templates(self, amplitude, x_pos, y_pos,
-                      make_variance_template, max_fitpoints, src_x, src_y):
+                      make_variance_template, max_fitpoints):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -314,10 +281,6 @@ class TemplateFitter:
                 
             y = y_pos[key]
             x = x_pos[key]
-
-#            plt.scatter(src_x[key],src_y[key])
-#            plt.scatter(x,y, c=amp)
-#            plt.show()
             
             # Stack up pixel positions
             pixel_pos = np.vstack([x,y])
@@ -355,7 +318,6 @@ class TemplateFitter:
 
     def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
                     nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64)):
-#                    nodes=(64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -381,6 +343,7 @@ class TemplateFitter:
 
         # We need a large number of layers to get this fit right
         if self.training_library == "sklearn":
+            from sklearn.neural_network import MLPRegressor
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=10000, tol=0,
@@ -391,7 +354,6 @@ class TemplateFitter:
         elif self.training_library == "KNN":
 
             from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
-            from sklearn.neural_network import MLPRegressor
 
             model = RadiusNeighborsRegressor(radius=0.02, weights="uniform")
             model.fit(pixel_pos, amp)
@@ -589,9 +551,11 @@ class TemplateFitter:
 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],pix_lists[1],pix_lists[2],
+            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
+                                                                         pix_lists[1],
+                                                                         pix_lists[2],
                                                                          make_variance,
-                                                                         max_fitpoints,pix_lists[3],pix_lists[4])
+                                                                         max_fitpoints)
             templates.update(file_templates)
 
             if make_variance:

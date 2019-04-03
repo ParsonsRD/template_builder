@@ -5,6 +5,7 @@ jobs used in ImPACT template generation
 
 import numpy as np
 from ctapipe.coordinates import *
+from astropy.coordinates import AltAz, SkyCoord
 import astropy.units as u
 
 particle_lookup = {"gamma": "1", "electron": "2", "proton": "3", "nitrogen": "1407",
@@ -96,18 +97,22 @@ class CORSIKAInput:
         for alt in np.nditer(altitude):
             for az in np.nditer(azimuth):
                 # We will need this later for coordinate conversions
-                horizon_system = HorizonFrame(alt=alt*u.deg, az=az*u.deg - arrang*u.deg)
+                horizon_system = SkyCoord(alt=alt*u.deg, az=az*u.deg - arrang*u.deg,
+                                          frame=AltAz())
 
                 # Scale the simulated energies if requested
+                print("here", self.energy_scaling, energy)
                 if self.energy_scaling:
+                    print( np.cos(np.deg2rad(90-alt)))
                     energy = energy / np.cos(np.deg2rad(90-alt))
 
                 for en in np.nditer(energy):
                     # We define our core distance in the tilted system, but when we
                     # simulate we do this in the ground system, so we need to
                     # project these values onto the ground
-                    tilted_system = TiltedGroundFrame(x=xr*u.m, y=yr*u.m,
-                                                      pointing_direction=horizon_system)
+                    tilted_system = SkyCoord(x=xr*u.m, y=yr*u.m,
+                                             frame=TiltedGroundFrame(pointing_direction=
+                                                                     horizon_system))
                     ground_system = project_to_ground(tilted_system)
 
                     simulation_dict[(90-float(alt), float(az), float(en))] = \

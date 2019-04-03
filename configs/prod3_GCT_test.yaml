@@ -1,13 +1,13 @@
 
 ShowerSimulation:
 
-  event_number: 10
+  event_number: 1
   zenith_scaling: True
-  min_events: 200
+  min_events: 1
   scaling_index: -1.5
 
   altitude:
-        - 90
+        - 70
   azimuth:
         - 180
 

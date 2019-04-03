@@ -5,3 +5,5 @@ scikit-learn
 scipy
 numpy
 tqdm
+astropy
+loess
