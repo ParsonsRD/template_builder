@@ -37,7 +37,8 @@ def find_nearest_bin(array, value):
 class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
+                 min_fit_pixels=3000, crossover=50000,
+                 xmax_bins=np.linspace(-150, 200, 15),
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
         """
 
@@ -65,6 +66,7 @@ class TemplateFitter:
         self.rotation_angle = rotation_angle
 
         self.training_library = training_library
+        self.crossover = crossover
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -287,7 +289,7 @@ class TemplateFitter:
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, max_fitpoints)
-            if self.training_library == "loess":
+            if str(type(model)) == "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
@@ -341,8 +343,12 @@ class TemplateFitter:
             amp = amp[indices[:max_fitpoints]]
             pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
+        training_library = self.training_library
+        if amp.shape[0] > self.crossover:
+            training_library = "loess"
+
         # We need a large number of layers to get this fit right
-        if self.training_library == "sklearn":
+        if training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
@@ -351,14 +357,7 @@ class TemplateFitter:
                                  n_iter_no_change=50)
             model.fit(pixel_pos, amp)
 
-        elif self.training_library == "KNN":
-
-            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
-
-            model = RadiusNeighborsRegressor(radius=0.02, weights="uniform")
-            model.fit(pixel_pos, amp)
-
-        elif self.training_library == "loess":
+        elif training_library == "loess":
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
             sel = amp!=0
@@ -368,7 +367,7 @@ class TemplateFitter:
 
             return lin
 
-        elif self.training_library == "keras":
+        elif training_library == "keras":
             from keras.models import Sequential
             from keras.layers import Dense, Activation
             import keras
