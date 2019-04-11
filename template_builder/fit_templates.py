@@ -157,8 +157,8 @@ class TemplateFitter:
                     nom_coord = camera_coord.transform_to(
                         NominalFrame(origin=point))
 
-                    x = nom_coord.delta_az.to(u.deg)
-                    y = nom_coord.delta_alt.to(u.deg)
+                    y = nom_coord.delta_az.to(u.deg)
+                    x = nom_coord.delta_alt.to(u.deg)
 
                     # Calculate expected rotation angle of the image
                     phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
@@ -174,8 +174,8 @@ class TemplateFitter:
                     # another
                     x, y = \
                         ImPACTReconstructor.rotate_translate(x, y,
-                                                             source_direction.delta_az,
                                                              source_direction.delta_alt,
+                                                             source_direction.delta_az,
                                                              phi)
                     x *= -1
 
