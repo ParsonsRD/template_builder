@@ -313,8 +313,14 @@ class TemplateFitter:
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
                 variance = np.abs(amp - predicted_values)
-                model_variance = self.perform_fit(variance, pixel_pos, "KNN")
-                nn_out_variance = np.power(model_variance.predict(grid.T), 2)
+                model_variance = self.perform_fit(variance, pixel_pos, "loess")
+
+                if str(type(model)) == \
+                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
+                    nn_out_variance = np.power(model_variance(grid.T), 2)
+                else:
+                    nn_out_variance = np.power(model_variance.predict(grid.T), 2)
+                print(grid.shape, nn_out_variance.shape)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
 
@@ -357,7 +363,7 @@ class TemplateFitter:
             from sklearn.neural_network import MLPRegressor
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
-                                 max_iter=10000, tol=0,
+                                 max_iter=1000, tol=0,
                                  early_stopping=True, verbose=True,
                                  n_iter_no_change=10)
             model.fit(pixel_pos, amp)
