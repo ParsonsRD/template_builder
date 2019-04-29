@@ -320,7 +320,7 @@ class TemplateFitter:
         return templates_out, variance_templates_out
 
     def perform_fit(self, amp, pixel_pos, training_library, max_fitpoints=None,
-                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64):
+                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
