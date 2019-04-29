@@ -288,8 +288,9 @@ class TemplateFitter:
             pixel_pos = np.vstack([x,y])
 
             # Fit with MLP
-            model = self.perform_fit(amp, pixel_pos, max_fitpoints)
-            if str(type(model)) == "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
+            model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
+            if str(type(model)) == \
+                    "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
@@ -308,7 +309,7 @@ class TemplateFitter:
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
                 variance = np.abs(amp - predicted_values)
-                model_variance = self.perform_fit(variance, pixel_pos)
+                model_variance = self.perform_fit(variance, pixel_pos, "KNN")
                 nn_out_variance = np.power(model_variance.predict(grid.T), 2)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
@@ -318,7 +319,7 @@ class TemplateFitter:
 
         return templates_out, variance_templates_out
 
-    def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
+    def perform_fit(self, amp, pixel_pos, training_library, max_fitpoints=None,
                     nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
@@ -343,8 +344,8 @@ class TemplateFitter:
             amp = amp[indices[:max_fitpoints]]
             pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
-        training_library = self.training_library
-        if amp.shape[0] > self.crossover:
+        if amp.shape[0] > self.crossover and \
+                (training_library is "keras" or training_library is "sklearn"):
             training_library = "loess"
 
         # We need a large number of layers to get this fit right
@@ -362,7 +363,6 @@ class TemplateFitter:
             from scipy.interpolate import LinearNDInterpolator
             sel = amp!=0
             model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel], degree=3, frac=0.01)
-            print("here")
             lin = LinearNDInterpolator(pixel_pos[sel], model[0])
 
             return lin
