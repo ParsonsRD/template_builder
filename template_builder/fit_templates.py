@@ -359,13 +359,13 @@ class TemplateFitter:
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=10000, tol=0,
                                  early_stopping=True, verbose=True,
-                                 n_iter_no_change=50)
+                                 n_iter_no_change=10)
             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsClassifier
+            from sklearn.neighbors import KNeighborsRegressor
 
-            model = KNeighborsClassifier(10)
+            model = KNeighborsRegressor(10)
             model.fit(pixel_pos, amp)
 
         elif training_library == "loess":
