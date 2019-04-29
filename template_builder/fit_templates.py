@@ -320,7 +320,7 @@ class TemplateFitter:
         return templates_out, variance_templates_out
 
     def perform_fit(self, amp, pixel_pos, training_library, max_fitpoints=None,
-                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64)):
+                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64):
         """
         Fit MLP model to individual template pixels
 
@@ -354,8 +354,14 @@ class TemplateFitter:
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=10000, tol=0,
-                                 early_stopping=True, verbose=False,
+                                 early_stopping=True, verbose=True,
                                  n_iter_no_change=50)
+            model.fit(pixel_pos, amp)
+
+        elif training_library == "KNN":
+            from sklearn.neighbors import KNeighborsClassifier
+
+            model = KNeighborsClassifier(10)
             model.fit(pixel_pos, amp)
 
         elif training_library == "loess":
