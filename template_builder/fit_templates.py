@@ -110,9 +110,13 @@ class TemplateFitter:
                 source_direction = src.transform_to(NominalFrame(origin=point))
 
                 # Perform calibration of images
-                self.r1.calibrate(event)
-                self.dl0.reduce(event)
-                self.calibrator.calibrate(event)
+                try:
+                    self.r1.calibrate(event)
+                    self.dl0.reduce(event)
+                    self.calibrator.calibrate(event)
+                except ZeroDivisionError:
+                    print("ZeroDivisionError in calibrator, skipping this event")
+                    continue
 
                 # Store simulated event energy
                 energy = mc.energy
