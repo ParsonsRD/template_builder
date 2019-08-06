@@ -6,9 +6,7 @@ import pickle
 
 import astropy.units as u
 import numpy as np
-from ctapipe.calib.camera.dl0 import CameraDL0Reducer
-from ctapipe.calib.camera.dl1 import CameraDL1Calibrator
-from ctapipe.calib.camera.r1 import HESSIOR1Calibrator
+
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame
 from astropy.coordinates import SkyCoord, AltAz
@@ -16,7 +14,8 @@ from ctapipe.io.hessioeventsource import HESSIOEventSource
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
-from ctapipe.image import tailcuts_clean, dilate
+from ctapipe.image import tailcuts_clean
+from ctapipe.calib import CameraCalibrator
 
 
 def find_nearest_bin(array, value):
@@ -60,9 +59,6 @@ class TemplateFitter:
         self.bins = bins
         self.min_fit_pixels = min_fit_pixels
 
-        self.r1 = HESSIOR1Calibrator(None, None)
-        self.dl0 = CameraDL0Reducer(None, None)
-        self.calibrator = CameraDL1Calibrator(None, None)
         self.rotation_angle = rotation_angle
 
         self.training_library = training_library
@@ -90,6 +86,8 @@ class TemplateFitter:
         if self.verbose:
             print("Reading", filename.strip())
 
+        calibrator = CameraCalibrator() #CameraCalibrator(None, None)#
+
         with HESSIOEventSource(input_url=filename.strip()) as source:
 
             grd_tel = None
@@ -111,9 +109,7 @@ class TemplateFitter:
 
                 # Perform calibration of images
                 try:
-                    self.r1.calibrate(event)
-                    self.dl0.reduce(event)
-                    self.calibrator.calibrate(event)
+                    calibrator(event)
                 except ZeroDivisionError:
                     print("ZeroDivisionError in calibrator, skipping this event")
                     continue
@@ -312,6 +308,7 @@ class TemplateFitter:
                 predicted_values = model.predict(pixel_pos.T)
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
+                print(amp.shape, predicted_values.shape)
                 variance = np.abs(amp - predicted_values)
                 model_variance = self.perform_fit(variance, pixel_pos, "loess")
 
@@ -329,7 +326,7 @@ class TemplateFitter:
 
         return templates_out, variance_templates_out
 
-    def perform_fit(self, amp, pixel_pos, training_library, max_fitpoints=None,
+    def perform_fit(self, amp, pixel_pos,  training_library, max_fitpoints=None,
                     nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
@@ -378,7 +375,8 @@ class TemplateFitter:
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
             sel = amp!=0
-            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel], degree=3, frac=0.01)
+            model = loess_2d(pixel_pos[0][sel], pixel_pos[1][sel], amp[sel],
+                             degree=3, frac=0.01)
             lin = LinearNDInterpolator(pixel_pos[sel], model[0])
 
             return lin

@@ -106,7 +106,7 @@ class SimTelArrayConfig:
             base_directory = ""
 
         # this is not nice...
-        package_dir = dirname(getfile(template_builder)) + "/../"
+        package_dir = dirname(getfile(template_builder)) + "/"
         # Then copy into sim_telarray the config files
         shutil.copy(package_dir + "configs/run_sim_template",
                     simtel_directory + "/sim_telarray/" +
