@@ -3,7 +3,8 @@ from setuptools import setup
 setup(
     name='template_builder',
     version='0.2',
-    packages=['template_builder', 'template_builder.configs'],
+    packages=['template_builder'],
+    package_data={'template_builder' : "configs/*"},
     url='',
     license='',
     author='parsonsrd',
