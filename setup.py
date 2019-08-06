@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='template_builder',
-    version='0.1',
+    version='0.2',
     packages=['template_builder'],
     url='',
     license='',
