@@ -11,6 +11,7 @@ from pathlib import Path
 from os.path import dirname
 from inspect import getfile
 import template_builder
+import pkg_resources
 
 
 def get_run_script(config_name):
@@ -106,15 +107,15 @@ class SimTelArrayConfig:
             base_directory = ""
 
         # this is not nice...
-        package_dir = dirname(getfile(template_builder)) + "/"
+        package_dir = pkg_resources.resource_filename('template_builder', 'configs/')
         # Then copy into sim_telarray the config files
-        shutil.copy(package_dir + "configs/run_sim_template",
+        shutil.copy(package_dir + "/run_sim_template",
                     simtel_directory + "/sim_telarray/" +
                     get_run_script(self.config_name))
-        shutil.copy(package_dir + "configs/cta-temp_run.sh",
+        shutil.copy(package_dir + "/cta-temp_run.sh",
                     simtel_directory + "/sim_telarray/" +
                     "/template_run_" + self.config_name + ".sh")
-        shutil.copy(package_dir + "configs/array_trigger_temp.dat",
+        shutil.copy(package_dir + "/array_trigger_temp.dat",
                     simtel_directory + "/sim_telarray/" +
                     base_directory + "/array_trigger_temp.dat")
 
@@ -144,9 +145,10 @@ class SimTelArrayConfig:
 
         f = open(simtel_directory + "/sim_telarray/" + filename, 'w')
 
-        package_dir = dirname(getfile(template_builder)) + "/../"
+        package_dir = pkg_resources.resource_filename('template_builder', 'configs/')
+
         # Take out boilerplate file
-        ft = open(package_dir + "configs/simtel_template.cfg", 'r')
+        ft = open(package_dir + "/simtel_template.cfg", 'r')
         gen = ft.read()
         # And copy in reference to our telescope config
         f.write(gen)
