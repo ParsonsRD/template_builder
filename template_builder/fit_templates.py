@@ -374,9 +374,9 @@ class TemplateFitter:
         elif training_library == "loess":
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
-            #sel = amp!=0
-            model = loess_2d(pixel_pos[0], pixel_pos[1], amp,
-                             degree=3, frac=0.01)
+            sel = amp!=0
+            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1], amp[sel],
+                             degree=3, frac=0.001)
             lin = LinearNDInterpolator(pixel_pos, model[0])
 
             return lin
