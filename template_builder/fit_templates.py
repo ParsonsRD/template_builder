@@ -369,7 +369,10 @@ class TemplateFitter:
                                  early_stopping=True, verbose=True,
                                  n_iter_no_change=10)
 
-            pixel_pos = np.concatenate((np.abs(pixel_pos), np.abs(pixel_pos)*-1))
+            pixel_pos = [pixel_pos.T[0], np.abs(pixel_pos.T[1])]
+            pixel_pos_neg = [pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]
+
+            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
             amp = np.concatenate((amp, amp))
             model.fit(pixel_pos, amp)
 
