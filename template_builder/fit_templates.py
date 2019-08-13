@@ -36,7 +36,7 @@ def find_nearest_bin(array, value):
 class TemplateFitter:
 
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000, crossover=50000,
+                 min_fit_pixels=3000, crossover=25000,
                  xmax_bins=np.linspace(-150, 200, 15),
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
         """
@@ -276,7 +276,8 @@ class TemplateFitter:
                 first = False
 
             amp = np.array(amplitude[key])
-            print(len(amp), key)
+            if self.verbose:
+                print("Template key:", key)
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
                 continue
@@ -308,7 +309,6 @@ class TemplateFitter:
                 predicted_values = model.predict(pixel_pos.T)
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
-                print(amp.shape, predicted_values.shape)
                 variance = np.abs(amp - predicted_values)
                 model_variance = self.perform_fit(variance, pixel_pos, "loess")
 
@@ -317,7 +317,6 @@ class TemplateFitter:
                     nn_out_variance = np.power(model_variance(grid.T), 2)
                 else:
                     nn_out_variance = np.power(model_variance.predict(grid.T), 2)
-                print(grid.shape, nn_out_variance.shape)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
 
@@ -345,16 +344,22 @@ class TemplateFitter:
         pixel_pos = pixel_pos.T
 
         # If we put a limit on this then randomly choose points
-        if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
-            indices = np.arange(amp.shape[0])
-            np.random.shuffle(indices)
-            amp = amp[indices[:max_fitpoints]]
-            pixel_pos = pixel_pos[indices[:max_fitpoints]]
+        #if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
+        #    indices = np.arange(amp.shape[0])
+        #    np.random.shuffle(indices)
+        #    amp = amp[indices[:max_fitpoints]]
+        #    pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
         if amp.shape[0] > self.crossover and \
                 (training_library is "keras" or training_library is "sklearn"):
             training_library = "loess"
+        elif amp.shape[0] > max_fitpoints and \
+                (training_library is "keras" or training_library is "sklearn"):
+            training_library = "KNN"
 
+        if self.verbose:
+            print("Fitting template using", training_library, "with", amp.shape[0],
+                  "total pixels")
         # We need a large number of layers to get this fit right
         if training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
@@ -363,10 +368,13 @@ class TemplateFitter:
                                  max_iter=1000, tol=0,
                                  early_stopping=True, verbose=True,
                                  n_iter_no_change=10)
+
+            pixel_pos = np.concatenate((np.abs(pixel_pos), np.abs(pixel_pos)*-1))
+            pixel_pos = np.concatenate((amp, amp))
             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor
+            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
 
             model = KNeighborsRegressor(10)
             model.fit(pixel_pos, amp)
@@ -375,8 +383,8 @@ class TemplateFitter:
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
             sel = amp!=0
-            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1], amp[sel],
-                             degree=3, frac=0.001)
+            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
+                             degree=3, frac=0.005)
             lin = LinearNDInterpolator(pixel_pos, model[0])
 
             return lin
