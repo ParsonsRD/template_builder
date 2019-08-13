@@ -370,7 +370,7 @@ class TemplateFitter:
                                  n_iter_no_change=10)
 
             pixel_pos = np.concatenate((np.abs(pixel_pos), np.abs(pixel_pos)*-1))
-            pixel_pos = np.concatenate((amp, amp))
+            amp = np.concatenate((amp, amp))
             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
