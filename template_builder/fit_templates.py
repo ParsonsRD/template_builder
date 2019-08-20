@@ -373,7 +373,7 @@ class TemplateFitter:
             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
+            from sklearn.neighbors import KNeighborsRegressor
 
             model = KNeighborsRegressor(10)
             model.fit(pixel_pos, amp)
