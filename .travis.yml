@@ -32,7 +32,7 @@ before_install:
     
 install:
     - conda create --name template_builder python=$PYTHON_VERSION
-    - travis_wait 20 conda env update -n template_builder
+    - travis_wait 20 conda env update -n template_builder --file py${PYTHON_VERSION}_env.yaml
     - source activate template_builder
     - ulimit -s 16000  # increase stack size limit, for libhessio
     - pip install travis-sphinx
