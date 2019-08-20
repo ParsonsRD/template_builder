@@ -2,7 +2,7 @@ language: python
 
 python:
   # We don't actually use the Travis Python, but this keeps it organized.
-  - "3.6"
+  #- "3.6"
   - "3.7"
 
 before_install:
@@ -33,7 +33,7 @@ before_install:
 install:
     - ls
     - pwd
-    - conda create --name template_builder -f environment.yml python=$PYTHON_VERSION
+    - conda create --name template_builder --file environment.yml python=$PYTHON_VERSION
     - source activate template_builder
     - ulimit -s 16000  # increase stack size limit, for libhessio
     - pip install travis-sphinx
