@@ -1,6 +1,6 @@
 -e git+https://github.com/ParsonsRD/submit_SGE.git#egg=submit_SGE
 pyyaml
- -c cta-observatory ctapipe==0.7*
+ctapipe==0.7*
 scikit-learn
 scipy
 numpy
