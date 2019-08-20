@@ -31,7 +31,9 @@ before_install:
     - git fetch --tags
     
 install:
-    - conda create --name template_builder python=$PYTHON_VERSION  -f environment.yml
+    - ls
+    - pwd
+    - conda create --name template_builder -f environment.yml python=$PYTHON_VERSION
     - source activate template_builder
     - ulimit -s 16000  # increase stack size limit, for libhessio
     - pip install travis-sphinx
