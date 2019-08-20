@@ -18,9 +18,9 @@ dependencies:
   - scipy
   - setuptools
   - sphinx
-  - sphinx-automodapi
   - sphinx_rtd_theme
   - tqdm
+  - pip
   - pip:
     - git+https://github.com/ParsonsRD/submit_SGE.git
     - loess
