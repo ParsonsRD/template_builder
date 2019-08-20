@@ -12,12 +12,4 @@ setup(
     author='parsonsrd',
     author_email='',
     description='Creation tools for building ImPACT templates for ctapipe',
-    install_requires=[
-        'numpy',
-        'scipy',
-        'scikit-learn',
-        'tqdm',
-        'astropy',
-        'ctapipe==0.7*',
-        'git+https://github.com/ParsonsRD/submit_SGE.git']
 )
