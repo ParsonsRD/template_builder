@@ -1,5 +1,5 @@
 -e git+https://github.com/ParsonsRD/submit_SGE.git#egg=submit_SGE
-yaml
+pyyaml
 ctapipe==0.7*
 scikit-learn
 scipy
