@@ -18,6 +18,6 @@ setup(
         'scikit-learn',
         'tqdm',
         'astropy',
-        'ctapipe=0.7*',
+        'ctapipe==0.7*',
         'git+https://github.com/ParsonsRD/submit_SGE.git']
 )
