@@ -1,4 +1,4 @@
-# template_builder
+# ImPACT Template Builder
 
 Set of classes to allow the production of image templates for use with the ImPACT Cherenkov telescope event reconstruction. 
 For more information about ImPACT see:
