@@ -1,0 +1,26 @@
+# A conda environment with all useful package for ctapipe developers
+name: template_builder
+channels:
+  - default
+  - cta-observatory
+dependencies:
+  - astropy
+  - ctapipe=0.7*
+  - ipython
+  - jupyter
+  - matplotlib
+  - numpy>=1.15.4
+  - pytest
+  - pytest-cov
+  - pytest-runner
+  - pyyaml
+  - scikit-learn
+  - scipy
+  - setuptools
+  - sphinx
+  - sphinx-automodapi
+  - sphinx_rtd_theme
+  - tqdm
+  - pip:
+    - git+https://github.com/ParsonsRD/submit_SGE.git
+    - loess
