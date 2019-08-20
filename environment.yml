@@ -1,4 +1,4 @@
-# A conda environment with all useful package for ctapipe developers
+# Conda environment
 name: template_builder
 channels:
   - default
