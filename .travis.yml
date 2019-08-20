@@ -39,10 +39,12 @@ install:
     - pip install travis-sphinx
     - pip install codecov
     - python setup.py develop
-    
+
+script:
+    - pytest --cov=template_builder
+
 after_script:
     - source deactivate
 
 after_success:
-    - travis-sphinx -v --outdir=docbuild deploy
     - codecov

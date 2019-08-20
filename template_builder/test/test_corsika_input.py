@@ -23,28 +23,31 @@ def test_simulation_range():
 
 def test_corsika_input():
     # Check our output format is correct
-    sim = corsika_input.create_corsika_input({(0,0,1):np.array([[0,0,0],[100,0,0]])},
-                                             1000, "| test_script")
-    assert sim[(0, 0, 1)] == 'THETA 0.0 0.0 \nPHI 0.0 0.0 \n' \
-                              'EN 100.0 100.0 \n' \
+    sim = corsika_input.create_corsika_input({(0, 0, 1):np.array([[0, 0, 0],
+                                                                  [100, 0, 0]])},
+                                             1000, 10, "test_script")
+    assert sim[(0, 0, 1)] == 'PRMPAR 1 \n' \
+                             'THETAP 0.0 0.0 \nPHIP 0.0 0.0 \n' \
+                              'ERANGE 1000.0 1000.0 \n' \
                               'NSHOW 1000 \n' \
-                              'TELESCOPE 0.0 0.0 0.0 \n' \
-                              'TELESCOPE 10000.0 0.0 0.0 \n' \
+                              'TELESCOPE 0.0 0.0 0.0 1000.0\n' \
+                              'TELESCOPE 10000.0 0.0 0.0 1000.0\n' \
                               'OBSLVL 2150 \n' \
-                              'TELFIL | test_script'
+                              'TELFIL |${SIM_TELARRAY_PATH}/test_script'
 
 
 def test_full_process():
     # Finally test everything in one step
-    cards = corsika_input.get_input_cards(1000, 90, 0, 1, [0, 100, 200], 0,
-                                          "| test_script")
-    assert cards[(0, 0, 1)] == 'THETA 0.0 0.0 \n' \
-                               'PHI 0.0 0.0 \n' \
-                               'EN 100.0 100.0 \n' \
+    cards = corsika_input.get_input_cards(1000, 90, 0, 1, [0, 100, 200], 0, 10.0,
+                                          "test_script")
+    assert cards[(0, 0, 1.0)] == 'PRMPAR 1 \n' \
+                               'THETAP 0.0 0.0 \n' \
+                               'PHIP 0.0 0.0 \n' \
+                               'ERANGE 1000.0 1000.0 \n' \
                                'NSHOW 1000 \n' \
-                               'TELESCOPE 0.0 0.0 0.0 \n' \
-                               'TELESCOPE 10000.0 0.0 0.0 \n' \
-                               'TELESCOPE 20000.0 0.0 0.0 \n' \
+                               'TELESCOPE 0.0 0.0 0.0 1000.0\n' \
+                               'TELESCOPE 10000.0 0.0 0.0 1000.0\n' \
+                               'TELESCOPE 20000.0 0.0 0.0 1000.0\n' \
                                'OBSLVL 2150 \n' \
-                               'TELFIL | test_script'
+                               'TELFIL |${SIM_TELARRAY_PATH}/test_script'
 
