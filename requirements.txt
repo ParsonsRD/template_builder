@@ -1,9 +1,10 @@
 -e git+https://github.com/ParsonsRD/submit_SGE.git#egg=submit_SGE
 yaml
-ctapipe
+ctapipe=0.7*
 scikit-learn
 scipy
 numpy
 tqdm
 astropy
 loess
+numpy
