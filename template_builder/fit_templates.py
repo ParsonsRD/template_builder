@@ -35,9 +35,9 @@ def find_nearest_bin(array, value):
 
 class TemplateFitter:
 
-    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(600, 300),
-                 min_fit_pixels=3000, crossover=25000,
-                 xmax_bins=np.linspace(-150, 200, 15),
+    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(601, 301),
+                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
+                 maximum_offset=10*u.deg,
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
         """
 
@@ -60,9 +60,8 @@ class TemplateFitter:
         self.min_fit_pixels = min_fit_pixels
 
         self.rotation_angle = rotation_angle
-
+        self.maximum_offset = maximum_offset
         self.training_library = training_library
-        self.crossover = crossover
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -104,6 +103,10 @@ class TemplateFitter:
                 # Create coordinate objects for source position
                 src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
                                frame=AltAz())
+
+                if point.separation(point) > self.maximum_offset:
+                    continue
+
                 # And transform into nominal system (where we store our templates)
                 source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -344,18 +347,11 @@ class TemplateFitter:
         pixel_pos = pixel_pos.T
 
         # If we put a limit on this then randomly choose points
-        #if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
-        #    indices = np.arange(amp.shape[0])
-        #    np.random.shuffle(indices)
-        #    amp = amp[indices[:max_fitpoints]]
-        #    pixel_pos = pixel_pos[indices[:max_fitpoints]]
-
-        if amp.shape[0] > self.crossover and \
-                (training_library is "keras" or training_library is "sklearn"):
-            training_library = "loess"
-        elif amp.shape[0] > max_fitpoints and \
-                (training_library is "keras" or training_library is "sklearn"):
-            training_library = "KNN"
+        if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
+            indices = np.arange(amp.shape[0])
+            np.random.shuffle(indices)
+            amp = amp[indices[:max_fitpoints]]
+            pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
         if self.verbose:
             print("Fitting template using", training_library, "with", amp.shape[0],
@@ -369,8 +365,8 @@ class TemplateFitter:
                                  early_stopping=True, verbose=True,
                                  n_iter_no_change=10)
 
-            pixel_pos = [pixel_pos.T[0], np.abs(pixel_pos.T[1])]
-            pixel_pos_neg = [pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]
+            pixel_pos = [pixel_pos.T[0], np.abs(pixel_pos.T[1])].T
+            pixel_pos_neg = [pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])].T
 
             pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
             amp = np.concatenate((amp, amp))
@@ -388,7 +384,7 @@ class TemplateFitter:
             sel = amp!=0
             model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
                              degree=3, frac=0.005)
-            lin = LinearNDInterpolator(pixel_pos, model[0])
+            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
 
             return lin
 
