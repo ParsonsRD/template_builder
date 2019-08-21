@@ -1,7 +1,7 @@
 
 ShowerSimulation:
 
-  event_number: 200
+  event_number: 10
   zenith_scaling: True
   min_events: 1
   scaling_index: -1.5
@@ -12,25 +12,7 @@ ShowerSimulation:
         - 166 # Subtract the 14 deg B field rotation
 
   energy_bins:
-        - 7.94328235e-02
-        - 1.25892541e-01
-        - 1.99526231e-01
-        - 3.16227766e-01
-        - 5.01187234e-01
-        - 7.94328235e-01
-        - 1.25892541e+00
-        - 1.99526231e+00
-        - 3.16227766e+00
-        - 5.01187234e+00
-        - 7.94328235e+00
-        - 1.25892541e+01
-        - 1.99526231e+01
-        - 3.16227766e+01
-        - 5.01187234e+01
-        - 7.94328235e+01
-        - 1.25892541e+02
-        - 1.99526231e+02
-        - 3.16227766e+02
+        - 1.0
 
   core_bins:
             - 0
