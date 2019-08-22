@@ -7,6 +7,7 @@ import numpy as np
 from ctapipe.coordinates import *
 from astropy.coordinates import AltAz, SkyCoord
 import astropy.units as u
+from astropy.time import Time
 
 particle_lookup = {"gamma": "1", "electron": "2", "proton": "3", "nitrogen": "1407",
                    "silicon": "2814", "iron": "5626"}
@@ -97,8 +98,11 @@ class CORSIKAInput:
         for alt in np.nditer(altitude):
             for az in np.nditer(azimuth):
                 # We will need this later for coordinate conversions
+                # We give a dummy time just to avoid errors later
                 horizon_system = SkyCoord(alt=alt*u.deg, az=az*u.deg - arrang*u.deg,
-                                          frame=AltAz())
+                                          frame=AltAz(obstime=
+                                                      Time('2010-01-01T00:00:00',
+                                                           format='isot', scale='utc')))
 
                 # Scale the simulated energies if requested
                 print("here", self.energy_scaling, energy)
