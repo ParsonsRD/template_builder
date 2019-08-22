@@ -10,7 +10,7 @@ import numpy as np
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame
 from astropy.coordinates import SkyCoord, AltAz
-from ctapipe.io.hessioeventsource import HESSIOEventSource
+from ctapipe.io.eventsource import event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
@@ -87,7 +87,7 @@ class TemplateFitter:
 
         calibrator = CameraCalibrator() #CameraCalibrator(None, None)#
 
-        with HESSIOEventSource(input_url=filename.strip()) as source:
+        with event_source(input_url=filename.strip()) as source:
 
             grd_tel = None
             num = 0  # Event counter
@@ -141,13 +141,9 @@ class TemplateFitter:
                 # Loop over triggered telescopes
                 for tel_id in event.dl0.tels_with_data:
 
-
                     #  Get pixel signal (make gain selection if we have 2 channels)
-                    pmt_signal = event.dl1.tel[tel_id].image[0]
-                    if len(event.dl1.tel[tel_id].image) > 1:
-                        pmt_signal_lg = event.dl1.tel[tel_id].image[1]
-                        pmt_signal[pmt_signal_lg > 200] = pmt_signal_lg[pmt_signal_lg > 200]
-                    #                print("max_signal", np.max(pmt_signal))
+                    pmt_signal = event.dl1.tel[tel_id].image
+
                     # Get pixel coordinates and convert to the nominal system
                     geom = event.inst.subarray.tel[tel_id].camera
                     fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
