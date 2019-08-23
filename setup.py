@@ -6,7 +6,7 @@ setup(
     packages=['template_builder'],
     package_dir={'template_builder': 'template_builder'},
     package_data={'template_builder': "configs/*",
-                  'template_data': "data/*"},
+                  'template_builder': "data/*"},
     include_package_data=True,
     url='',
     license='',
