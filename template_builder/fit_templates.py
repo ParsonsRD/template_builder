@@ -10,6 +10,7 @@ import numpy as np
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame
 from astropy.coordinates import SkyCoord, AltAz
+from astropy.time import Time
 from ctapipe.io.eventsource import event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
@@ -82,10 +83,13 @@ class TemplateFitter:
         templates_xb = dict()  # Rotated X position
         templates_yb = dict()  # Rotated Y positions
 
+        # Create a dummy time for our AltAz objects
+        dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
+
         if self.verbose:
             print("Reading", filename.strip())
 
-        calibrator = CameraCalibrator() #CameraCalibrator(None, None)#
+        calibrator = CameraCalibrator()
 
         with event_source(input_url=filename.strip()) as source:
 
@@ -97,12 +101,12 @@ class TemplateFitter:
                 if alt > 90. * u.deg:
                     alt = 90. * u.deg
                 point = SkyCoord(alt=alt, az=event.mcheader.run_array_direction[0],
-                                 frame=AltAz())
+                                 frame=AltAz(obstime=dummy_time))
 
                 mc = event.mc
                 # Create coordinate objects for source position
                 src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
-                               frame=AltAz())
+                               frame=AltAz(obstime=dummy_time))
 
                 if point.separation(point) > self.maximum_offset:
                     continue
@@ -141,7 +145,7 @@ class TemplateFitter:
                 # Loop over triggered telescopes
                 for tel_id in event.dl0.tels_with_data:
 
-                    #  Get pixel signal (make gain selection if we have 2 channels)
+                    #  Get pixel signal
                     pmt_signal = event.dl1.tel[tel_id].image
 
                     # Get pixel coordinates and convert to the nominal system
@@ -185,15 +189,6 @@ class TemplateFitter:
                     mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
                     mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
 
-                    mask510 = tailcuts_clean(geom, pmt_signal,
-                                          picture_thresh=5,
-                                          boundary_thresh=10,
-                                          min_number_picture_neighbors=1)
-                    amp_sum = np.sum(pmt_signal[mask510])
-
-                    if amp_sum<30:
-                        continue
-
                     # Make sure everythin is 32 bit
                     x = x[mask].astype(np.float32)
                     y = y[mask].astype(np.float32)
@@ -215,12 +210,12 @@ class TemplateFitter:
                     # Now fill up our output with the X, Y and amplitude of our pixels
                     if (zen, az, energy.value, int(impact), x_diff_bin) in templates.keys():
                         # Extend the list if an entry already exists
-                        templates[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                            image)
-                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                            x.value)
-                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].extend(
-                            y.value)
+                        templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(image)
+                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(x.to(u.deg).value)
+                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(y.to(u.deg).value)
                     else:
                         templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                             image.tolist()
@@ -309,7 +304,8 @@ class TemplateFitter:
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
                 variance = np.abs(amp - predicted_values)
-                model_variance = self.perform_fit(variance, pixel_pos, "loess")
+                model_variance = self.perform_fit(variance, pixel_pos,
+                                                  self.training_library)
 
                 if str(type(model)) == \
                         "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
@@ -358,7 +354,7 @@ class TemplateFitter:
 
             model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
                                  max_iter=1000, tol=0,
-                                 early_stopping=True, verbose=True,
+                                 early_stopping=True, verbose=False,
                                  n_iter_no_change=10)
 
             pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
@@ -371,18 +367,8 @@ class TemplateFitter:
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor
 
-            model = KNeighborsRegressor(10)
+            model = KNeighborsRegressor(50)
             model.fit(pixel_pos, amp)
-
-        elif training_library == "loess":
-            from loess.loess_2d import loess_2d
-            from scipy.interpolate import LinearNDInterpolator
-            sel = amp!=0
-            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
-                             degree=3, frac=0.005)
-            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
-
-            return lin
 
         elif training_library == "keras":
             from keras.models import Sequential
@@ -539,7 +525,7 @@ class TemplateFitter:
 
         return templates
 
-    def generate_templates(self, file_list, output_file, variance_output_file=None,
+    def generate_templates(self, file_list, output_file=None, variance_output_file=None,
                            extend_range=True, max_events=1e9, max_fitpoints=None):
         """
 
@@ -587,9 +573,10 @@ class TemplateFitter:
             if make_variance:
                 variance_templates = self.extend_template_coverage(variance_templates)
 
-        file_handler = gzip.open(output_file, "wb")
-        pickle.dump(templates, file_handler)
-        file_handler.close()
+        if output_file:
+            file_handler = gzip.open(output_file, "wb")
+            pickle.dump(templates, file_handler)
+            file_handler.close()
 
         if make_variance:
             file_handler = gzip.open(variance_output_file, "wb")
