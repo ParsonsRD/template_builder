@@ -33,7 +33,7 @@ class SimTelArrayConfig:
             Location of the telescope config file (relative to base sim_telarray
             directory)
         :param altitude: float
-            Observation level altitude above sea level
+            Observation level altitude above sea level (m)
         :param atmospheric_profile: str
             Name of atmospheric profile to be used in simulations
         :param offsets: list
@@ -173,7 +173,7 @@ class SimTelArrayConfig:
 
         # Look over offsets to make commands for running simulations
         for off in self.offsets:
-            wstr = 'env offset="' + str(off) + '" nsb="0.0" cfg=' + self.config_name + \
+            wstr = "env offset='" + str(off) + "' nsb='0.0' cfg=" + self.config_name + \
                    " cfgfile='" + template_config + "'" + \
                    " transmission=" + self.atmospheric_profile + \
                    " extra_config='-C altitude=" + str(self.altitude) + \

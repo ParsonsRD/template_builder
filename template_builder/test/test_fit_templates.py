@@ -142,3 +142,6 @@ def test_full_fit():
     for key in template:
         assert template[key].all() == template_fromfile[key].all()
         assert var_template[key].all() == var_template_fromfile[key].all()
+
+    os.remove("./test.template.gz")
+    os.remove("./test_var.template.gz")
