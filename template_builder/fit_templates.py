@@ -283,34 +283,25 @@ class TemplateFitter:
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
-            if str(type(model)) == \
-                    "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
-                nn_out = model(grid.T)
-                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-                nn_out[np.isinf(nn_out)] = 0
 
-            else:
-                # Evaluate MLP fit over our grid
-                nn_out = model.predict(grid.T)
-                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-                nn_out[np.isinf(nn_out)] = 0
+            # Evaluate MLP fit over our grid
+            nn_out = model.predict(grid.T)
+            nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+            nn_out[np.isinf(nn_out)] = 0
 
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
 
             if make_variance_template:
                 predicted_values = model.predict(pixel_pos.T)
+                predicted_values = predicted_values.ravel()
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
                 variance = np.abs(amp - predicted_values)
                 model_variance = self.perform_fit(variance, pixel_pos,
                                                   self.training_library)
 
-                if str(type(model)) == \
-                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
-                    nn_out_variance = np.power(model_variance(grid.T), 2)
-                else:
-                    nn_out_variance = np.power(model_variance.predict(grid.T), 2)
+                nn_out_variance = np.power(model_variance.predict(grid.T), 2)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
 
@@ -341,13 +332,25 @@ class TemplateFitter:
         if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
             indices = np.arange(amp.shape[0])
             np.random.shuffle(indices)
-            amp = amp[indices[:max_fitpoints]]
-            pixel_pos = pixel_pos[indices[:max_fitpoints]]
+            mirrored_amp = np.copy(amp[indices[:max_fitpoints]])
+            mirrored_pixel_pos = np.copy(pixel_pos[indices[:max_fitpoints]])
+        else:
+            mirrored_amp = np.copy(amp)
+            mirrored_pixel_pos = np.copy(pixel_pos)
 
         if self.verbose:
             print("Fitting template using", training_library, "with", amp.shape[0],
                   "total pixels")
+
         # We need a large number of layers to get this fit right
+        mirrored_pixel_pos = np.array([mirrored_pixel_pos.T[0],
+                                       np.abs(mirrored_pixel_pos.T[1])]).T
+        mirrored_pixel_pos_neg = np.array([mirrored_pixel_pos.T[0],
+                                  -1 * np.abs(mirrored_pixel_pos.T[1])]).T
+
+        mirrored_pixel_pos = np.concatenate((mirrored_pixel_pos, mirrored_pixel_pos_neg))
+        mirrored_amp = np.concatenate((mirrored_amp, mirrored_amp))
+
         if training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
 
@@ -356,18 +359,13 @@ class TemplateFitter:
                                  early_stopping=True, verbose=False,
                                  n_iter_no_change=10)
 
-            pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
-            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
-
-            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
-            amp = np.concatenate((amp, amp))
-            model.fit(pixel_pos, amp)
+            model.fit(mirrored_pixel_pos, mirrored_amp)
 
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor
 
             model = KNeighborsRegressor(50)
-            model.fit(pixel_pos, amp)
+            model.fit(mirrored_pixel_pos, mirrored_amp)
 
         elif training_library == "keras":
             from keras.models import Sequential
@@ -375,7 +373,7 @@ class TemplateFitter:
             import keras
 
             model = Sequential()
-            model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
+            model.add(Dense(nodes[0], activation="relu", input_dim=2))
 
             for n in nodes[1:]:
                 model.add(Dense(n, activation="relu"))
@@ -386,9 +384,8 @@ class TemplateFitter:
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
                                                      patience=50,
-                                                     verbose=2, mode='auto')
-
-            model.fit(pixel_pos, amp, epochs=10000,
+                                                     verbose=0, mode='auto')
+            model.fit(mirrored_pixel_pos, mirrored_amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
 

@@ -66,7 +66,8 @@ def test_template_fitting():
     test_template = (0., 0., 1., 0., 50.)
 
     # Then lets fit our example template using the different options
-    fit_options = ["sklearn", "KNN"]
+    fit_options = ["keras", "sklearn", "KNN"]
+
     for option in fit_options:
         fitter.training_library = option
 
@@ -145,3 +146,4 @@ def test_full_fit():
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
+
