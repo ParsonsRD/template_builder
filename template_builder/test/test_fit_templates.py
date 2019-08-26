@@ -109,3 +109,36 @@ def test_template_fitting():
     extended_template = fitter.extend_distance_range(template)
     assert (0., 0., 1., 100., 50.) in extended_template
     assert (0., 0., 1., 200., 50.) in extended_template
+
+
+def test_full_fit():
+    # Finally check everything
+
+    # Create our fitter object
+    fitter = TemplateFitter(min_fit_pixels=0, training_library="KNN")
+    # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
+    data_dir = pkg_resources.resource_filename('template_builder', 'data/')
+    # Which needs to actually be there
+    data_dir += "gamma_HESS_example.simhess.gz"
+
+    # Run full template generation
+    template, var_template = fitter.generate_templates([data_dir], "./test.template.gz",
+                                                       "./test_var.template.gz", True)
+
+    # Make sure we get something out
+    assert template is not None
+    assert var_template is not None
+
+    import os.path
+    os.path.isfile("./test.template.gz")
+    os.path.isfile("./test_var.template.gz")
+
+    # Open our output files
+    import pickle, gzip
+    template_fromfile = pickle.load(gzip.open("./test.template.gz","r"))
+    var_template_fromfile = pickle.load(gzip.open("./test_var.template.gz","r"))
+
+    # And check the contents are the same
+    for key in template:
+        assert template[key].all() == template_fromfile[key].all()
+        assert var_template[key].all() == var_template_fromfile[key].all()
