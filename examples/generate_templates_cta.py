@@ -49,7 +49,7 @@ def parse_config(file_list):
     for f in file_list:
         # Open YAML file
         with open(f[0],"r") as yaml_file:
-            yaml_file = yaml.load(yaml_file)
+            yaml_file = yaml.safe_load(yaml_file)
 
         # Get the config options if they exist
         if "CORSIKA" in yaml_file:

@@ -8,9 +8,6 @@ required simulation set and where to look for the results
 """
 import shutil
 from pathlib import Path
-from os.path import dirname
-from inspect import getfile
-import template_builder
 import pkg_resources
 
 
@@ -28,7 +25,7 @@ def get_run_script(config_name):
 class SimTelArrayConfig:
 
     def __init__(self, config_name, config_file, altitude, atmospheric_profile,
-                 optical_efficiency=1, extra_defines="", offsets=[0.0]):
+                 optical_efficiency=1, extra_defines=None, offsets=[0.0]):
         """
         :param config_name: str
             Name of the configuration
@@ -48,7 +45,11 @@ class SimTelArrayConfig:
         self.config_file = config_file
         self.atmospheric_profile = atmospheric_profile
 
-        self.extra_defines = extra_defines
+        if extra_defines:
+            self.extra_defines = extra_defines
+        else:
+            self.extra_defines = " "
+
         self.optical_efficiency = optical_efficiency
         self.altitude = altitude
 
@@ -204,13 +205,13 @@ class SimTelArrayConfig:
         """
         commands = list()
 
-        for input in corsika_input:
+        for input_value in corsika_input:
             run_string = "cd " + simtel_directory + "; "\
                          "source examples_common.sh; " \
                          "cd ${CORSIKA_DATA};" \
                          "${SIM_TELARRAY_PATH}/bin/corsika_autoinputs  " \
                          "--run ${CORSIKA_PATH}/corsika " \
-                         "-p ${CORSIKA_DATA} " + input
+                         "-p ${CORSIKA_DATA} " + input_value
 
             commands.append(run_string)
 

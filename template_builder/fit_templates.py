@@ -15,7 +15,6 @@ from ctapipe.io.eventsource import event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
-from ctapipe.image import tailcuts_clean
 from ctapipe.calib import CameraCalibrator
 
 
@@ -278,7 +277,7 @@ class TemplateFitter:
                 
             y = y_pos[key]
             x = x_pos[key]
-            
+
             # Stack up pixel positions
             pixel_pos = np.vstack([x,y])
 
@@ -372,7 +371,7 @@ class TemplateFitter:
 
         elif training_library == "keras":
             from keras.models import Sequential
-            from keras.layers import Dense, Activation
+            from keras.layers import Dense
             import keras
 
             model = Sequential()
