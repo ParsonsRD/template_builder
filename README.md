@@ -11,3 +11,5 @@ Classes are provided to perform the generation of CORSIKA input cards, sim_telar
 
 [![Build Status](https://travis-ci.com/ParsonsRD/template_builder.svg?branch=master)](https://travis-ci.com/ParsonsRD/template_builder)
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/ecffccf489c1447f94ed184bc27006bd)](https://www.codacy.com/app/ParsonsRD/template_builder?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=ParsonsRD/template_builder&amp;utm_campaign=Badge_Grade)
+[![codecov](https://codecov.io/gh/ParsonsRD/template_builder/branch/master/graph/badge.svg)](https://codecov.io/gh/ParsonsRD/template_builder)
+
