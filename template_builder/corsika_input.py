@@ -7,7 +7,6 @@ import numpy as np
 from ctapipe.coordinates import *
 from astropy.coordinates import AltAz, SkyCoord
 import astropy.units as u
-from astropy.time import Time
 
 particle_lookup = {"gamma": "1", "electron": "2", "proton": "3", "nitrogen": "1407",
                    "silicon": "2814", "iron": "5626"}
@@ -53,7 +52,7 @@ class CORSIKAInput:
 
         return common_input
 
-    def simulation_range(self, altitude, azimuth, energy, core_distance, rotation_angle):
+    def simulation_range(self, altitude, azimuth, energy_orig, core_distance, rotation_angle):
         """
 
         :param altitude: ndarray
@@ -77,7 +76,7 @@ class CORSIKAInput:
         # First lets make sure everything is an array
         altitude = np.array(altitude)
         azimuth = np.array(azimuth)
-        energy = np.array(energy)
+        energy_orig = np.array(energy_orig)
         rotation_angle = np.array(rotation_angle)
 
         # Create x, y positions of telescopes
@@ -98,17 +97,16 @@ class CORSIKAInput:
         for alt in np.nditer(altitude):
             for az in np.nditer(azimuth):
                 # We will need this later for coordinate conversions
-                # We give a dummy time just to avoid errors later
                 horizon_system = SkyCoord(alt=alt*u.deg, az=az*u.deg - arrang*u.deg,
-                                          frame=AltAz(obstime=
-                                                      Time('2010-01-01T00:00:00',
-                                                           format='isot', scale='utc')))
+                                          frame=AltAz())
 
                 # Scale the simulated energies if requested
-                print("here", self.energy_scaling, energy)
                 if self.energy_scaling:
-                    print( np.cos(np.deg2rad(90-alt)))
-                    energy = energy / np.cos(np.deg2rad(90-alt))
+                   # print( np.cos(np.deg2rad(90-alt)))
+                    energy = energy_orig / np.cos(np.deg2rad(90-alt))
+                else:
+                    energy = energy_orig
+#                print("here", self.energy_scaling, energy)
 
                 for en in np.nditer(energy):
                     # We define our core distance in the tilted system, but when we

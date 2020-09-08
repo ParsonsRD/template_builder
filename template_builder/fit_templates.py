@@ -15,8 +15,9 @@ from ctapipe.io.eventsource import event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
+from ctapipe.image import tailcuts_clean
 from ctapipe.calib import CameraCalibrator
-
+from ctapipe.image.extractor import FullWaveformSum
 
 def find_nearest_bin(array, value):
     """
@@ -38,7 +39,8 @@ class TemplateFitter:
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(601, 301),
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  maximum_offset=10*u.deg,
-                 verbose=False, rotation_angle=0 * u.deg, training_library="sklearn"):
+                 verbose=False, rotation_angle=0 * u.deg, training_library="sklearn",
+		 tailcuts=(7, 14), min_amp=30):
         """
 
         :param eff_fl: float
@@ -62,6 +64,8 @@ class TemplateFitter:
         self.rotation_angle = rotation_angle
         self.maximum_offset = maximum_offset
         self.training_library = training_library
+        self.tailcuts = tailcuts
+        self.min_amp = min_amp
 
     def read_templates(self, filename, max_events=1e9):
         """
@@ -88,7 +92,7 @@ class TemplateFitter:
         if self.verbose:
             print("Reading", filename.strip())
 
-        calibrator = CameraCalibrator()
+        calibrator = CameraCalibrator(image_extractor=FullWaveformSum())
 
         with event_source(input_url=filename.strip()) as source:
 
@@ -188,6 +192,15 @@ class TemplateFitter:
                     mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
                     mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
 
+                    mask510 = tailcuts_clean(geom, pmt_signal,
+                                          picture_thresh=self.tailcuts[0],
+                                          boundary_thresh=self.tailcuts[1],
+                                          min_number_picture_neighbors=1)
+                    amp_sum = np.sum(pmt_signal[mask510])
+
+                    if amp_sum<self.min_amp:
+                        continue
+
                     # Make sure everythin is 32 bit
                     x = x[mask].astype(np.float32)
                     y = y[mask].astype(np.float32)
@@ -283,11 +296,17 @@ class TemplateFitter:
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
+            if str(type(model)) == \
+                    "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
+                nn_out = model(grid.T)
+                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+                nn_out[np.isinf(nn_out)] = 0
 
-            # Evaluate MLP fit over our grid
-            nn_out = model.predict(grid.T)
-            nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-            nn_out[np.isinf(nn_out)] = 0
+            else:
+                # Evaluate MLP fit over our grid
+                nn_out = model.predict(grid.T)
+                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+                nn_out[np.isinf(nn_out)] = 0
 
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
@@ -301,7 +320,11 @@ class TemplateFitter:
                 model_variance = self.perform_fit(variance, pixel_pos,
                                                   self.training_library)
 
-                nn_out_variance = np.power(model_variance.predict(grid.T), 2)
+                if str(type(model)) == \
+                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
+                    nn_out_variance = np.power(model_variance(grid.T), 2)
+                else:
+                    nn_out_variance = np.power(model_variance.predict(grid.T), 2)
                 nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
                 nn_out_variance[np.isinf(nn_out)] = 0
 
@@ -332,25 +355,14 @@ class TemplateFitter:
         if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
             indices = np.arange(amp.shape[0])
             np.random.shuffle(indices)
-            mirrored_amp = np.copy(amp[indices[:max_fitpoints]])
-            mirrored_pixel_pos = np.copy(pixel_pos[indices[:max_fitpoints]])
-        else:
-            mirrored_amp = np.copy(amp)
-            mirrored_pixel_pos = np.copy(pixel_pos)
+            amp = amp[indices[:max_fitpoints]]
+            pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
         if self.verbose:
             print("Fitting template using", training_library, "with", amp.shape[0],
                   "total pixels")
 
         # We need a large number of layers to get this fit right
-        mirrored_pixel_pos = np.array([mirrored_pixel_pos.T[0],
-                                       np.abs(mirrored_pixel_pos.T[1])]).T
-        mirrored_pixel_pos_neg = np.array([mirrored_pixel_pos.T[0],
-                                  -1 * np.abs(mirrored_pixel_pos.T[1])]).T
-
-        mirrored_pixel_pos = np.concatenate((mirrored_pixel_pos, mirrored_pixel_pos_neg))
-        mirrored_amp = np.concatenate((mirrored_amp, mirrored_amp))
-
         if training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
 
@@ -359,13 +371,28 @@ class TemplateFitter:
                                  early_stopping=True, verbose=False,
                                  n_iter_no_change=10)
 
-            model.fit(mirrored_pixel_pos, mirrored_amp)
+            pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
+            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+
+            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+            amp = np.concatenate((amp, amp))
+            model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor
 
-            model = KNeighborsRegressor(50)
-            model.fit(mirrored_pixel_pos, mirrored_amp)
+            model = KNeighborsRegressor(10)
+            model.fit(pixel_pos, amp)
+
+        elif training_library == "loess":
+            from loess.loess_2d import loess_2d
+            from scipy.interpolate import LinearNDInterpolator
+            sel = amp!=0
+            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
+                             degree=3, frac=0.005)
+            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
+
+            return lin
 
         elif training_library == "keras":
             from keras.models import Sequential
@@ -373,7 +400,7 @@ class TemplateFitter:
             import keras
 
             model = Sequential()
-            model.add(Dense(nodes[0], activation="relu", input_dim=2))
+            model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
 
             for n in nodes[1:]:
                 model.add(Dense(n, activation="relu"))
@@ -384,8 +411,9 @@ class TemplateFitter:
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
                                                      patience=50,
-                                                     verbose=0, mode='auto')
-            model.fit(mirrored_pixel_pos, mirrored_amp, epochs=10000,
+                                                     verbose=2, mode='auto')
+
+            model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
 
@@ -521,7 +549,7 @@ class TemplateFitter:
 
         return templates
 
-    def generate_templates(self, file_list, output_file=None, variance_output_file=None,
+    def generate_templates(self, file_list, output_file, variance_output_file=None,
                            extend_range=True, max_events=1e9, max_fitpoints=None):
         """
 
@@ -569,10 +597,9 @@ class TemplateFitter:
             if make_variance:
                 variance_templates = self.extend_template_coverage(variance_templates)
 
-        if output_file:
-            file_handler = gzip.open(output_file, "wb")
-            pickle.dump(templates, file_handler)
-            file_handler.close()
+        file_handler = gzip.open(output_file, "wb")
+        pickle.dump(templates, file_handler)
+        file_handler.close()
 
         if make_variance:
             file_handler = gzip.open(variance_output_file, "wb")
