@@ -5,7 +5,7 @@ channels:
   - cta-observatory
 dependencies:
   - astropy
-  - ctapipe
+  - ctapipe=0.70
   - ipython
   - jupyter
   - matplotlib
