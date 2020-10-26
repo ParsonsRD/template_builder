@@ -243,9 +243,9 @@ class TemplateFitter:
                             pred = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
 
                             if key in self.correction.keys():
-                                self.correction[key] = np.append(self.correction[key], image/pred)
+                                self.correction[key] = np.append(self.correction[key], np.sum(image)/np.sum(pred))
                             else:
-                                self.correction[key] = (image/pred)
+                                self.correction[key] = (np.sum(image)/np.sum(pred))
                     else:
                         if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
                             # Extend the list if an entry already exists
@@ -625,7 +625,7 @@ class TemplateFitter:
         if self.amplitude_correction:
 
             for key in self.correction.keys():
-                print(key,  np.average(self.correction[key]))
+                print(key,  np.average(self.correction[key]), self.correction[key].shape)
                 self.template_fit[key] = self.template_fit[key] * np.average(self.correction[key])
 
         file_handler = gzip.open(output_file, "wb")
