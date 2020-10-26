@@ -8,14 +8,15 @@ from ctapipe.coordinates import *
 from astropy.coordinates import AltAz, SkyCoord
 import astropy.units as u
 
-particle_lookup = {"gamma": "1", "electron": "2", "proton": "3", "nitrogen": "1407",
+particle_lookup = {"gamma": "1", "electron": "2", "proton": "14", "nitrogen": "1407",
                    "silicon": "2814", "iron": "5626"}
 
 
 class CORSIKAInput:
 
     def __init__(self, input_parameters, energy_scaling=False,
-                 event_scaling_index=-1, min_events=200, primary_particle="gamma"):
+                 event_scaling_index=-1, min_events=200, primary_particle="gamma",
+                 maximum_energy=1000000):
         """
         Generates CORSIKA input cards for a
 
@@ -34,6 +35,7 @@ class CORSIKAInput:
         self.event_scaling_index = event_scaling_index
         self.min_events = min_events
         self.primary_particle = primary_particle
+        self.maximum_energy = maximum_energy
 
     @staticmethod
     def generate_common_input(input_parameters):
@@ -109,6 +111,8 @@ class CORSIKAInput:
 #                print("here", self.energy_scaling, energy)
 
                 for en in np.nditer(energy):
+                    if en > self.maximum_energy:
+                        continue
                     # We define our core distance in the tilted system, but when we
                     # simulate we do this in the ground system, so we need to
                     # project these values onto the ground
