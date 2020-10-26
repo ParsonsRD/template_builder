@@ -18,6 +18,8 @@ from tqdm import tqdm
 from ctapipe.image import tailcuts_clean
 from ctapipe.calib import CameraCalibrator
 from ctapipe.image.extractor import FullWaveformSum
+from ctapipe.calib.camera.gainselection import ThresholdGainSelector
+from ctapipe.io.simteleventsource import SimTelEventSource
 
 def find_nearest_bin(array, value):
     """
@@ -93,9 +95,10 @@ class TemplateFitter:
             print("Reading", filename.strip())
 
         calibrator = CameraCalibrator(image_extractor=FullWaveformSum())
+        gain_selector = ThresholdGainSelector(threshold=0)
 
-        with event_source(input_url=filename.strip()) as source:
-
+        with SimTelEventSource(input_url=filename.strip()) as source:
+            source.gain_selector = gain_selector
             grd_tel = None
             num = 0  # Event counter
 
@@ -111,11 +114,15 @@ class TemplateFitter:
                 src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
                                frame=AltAz(obstime=dummy_time))
 
-                if point.separation(point) > self.maximum_offset:
+                # Store simulated event energy
+                energy = mc.energy
+
+                if point.separation(point) > self.maximum_offset and energy<1*u.TeV:
                     continue
 
                 # And transform into nominal system (where we store our templates)
                 source_direction = src.transform_to(NominalFrame(origin=point))
+
 
                 # Perform calibration of images
                 try:
@@ -123,9 +130,6 @@ class TemplateFitter:
                 except ZeroDivisionError:
                     print("ZeroDivisionError in calibrator, skipping this event")
                     continue
-
-                # Store simulated event energy
-                energy = mc.energy
 
                 # Store ground position of all telescopes
                 # We only want to do this once, but has to be done in event loop
@@ -147,15 +151,18 @@ class TemplateFitter:
 
                 # Loop over triggered telescopes
                 for tel_id in event.dl0.tels_with_data:
+                   #  Get pixel signal
+                    hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
+                    pmt_signal = hg
+                    pmt_signal[pmt_signal>150] = lg[pmt_signal>150]
 
-                    #  Get pixel signal
-                    pmt_signal = event.dl1.tel[tel_id].image
-
+                    #pmt_signal = event.dl1.tel[tel_id].image
+#                    print(np.max(pmt_signal))
                     # Get pixel coordinates and convert to the nominal system
                     geom = event.inst.subarray.tel[tel_id].camera
                     fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
                          self.eff_fl
-
+#                    print(event.inst.subarray.tel[tel_id].optics.equivalent_focal_length, self.eff_fl)
                     camera_coord = SkyCoord(x=geom.pix_x, y=geom.pix_y,
                                             frame=CameraFrame(focal_length=fl,
                                                               telescope_pointing=point))
@@ -198,8 +205,8 @@ class TemplateFitter:
                                           min_number_picture_neighbors=1)
                     amp_sum = np.sum(pmt_signal[mask510])
 
-                    if amp_sum<self.min_amp:
-                        continue
+#                    if amp_sum<self.min_amp:
+#                        continue
 
                     # Make sure everythin is 32 bit
                     x = x[mask].astype(np.float32)
@@ -213,7 +220,7 @@ class TemplateFitter:
                     # Calc difference from expected Xmax (for gammas)
                     exp_xmax = 300 + 93 * np.log10(energy.value)
                     x_diff = mc_xmax - exp_xmax
-
+                    print(mc_xmax)
                     x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
                     zen = 90 - point.alt.to(u.deg).value
@@ -357,6 +364,9 @@ class TemplateFitter:
             np.random.shuffle(indices)
             amp = amp[indices[:max_fitpoints]]
             pixel_pos = pixel_pos[indices[:max_fitpoints]]
+            
+#        if amp.shape[0] >1000:
+#            training_library = "loess"
 
         if self.verbose:
             print("Fitting template using", training_library, "with", amp.shape[0],
@@ -371,12 +381,19 @@ class TemplateFitter:
                                  early_stopping=True, verbose=False,
                                  n_iter_no_change=10)
 
-            pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
-            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+#            pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
+#            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
 
-            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
-            amp = np.concatenate((amp, amp))
+#            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+#            amp = np.concatenate((amp, amp))
             model.fit(pixel_pos, amp)
+
+        elif training_library == "SVM":
+             from sklearn.svm import SVR
+             from sklearn.gaussian_process import GaussianProcessRegressor
+             pixel_pos = np.array([pixel_pos.T[0], pixel_pos.T[1]]).T
+             model = GaussianProcessRegressor()#SVR(kernel='poly')
+             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor
@@ -385,12 +402,17 @@ class TemplateFitter:
             model.fit(pixel_pos, amp)
 
         elif training_library == "loess":
-            from loess.loess_2d import loess_2d
-            from scipy.interpolate import LinearNDInterpolator
-            sel = amp!=0
-            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
-                             degree=3, frac=0.005)
-            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
+            import lowess as lo
+            x0 = np.mgrid[-5:1:0.04, -1.5:1.5:0.04]
+            x0 = np.vstack([x0[0].ravel(), x0[1].ravel()])
+            model = lo.lowess(pixel_pos.T, amp, x0, deg=0, kernel=lo.epanechnikov, l=0.08)
+#            from loess.loess_2d import loess_2d
+#            from scipy.interpolate import LinearNDInterpolator
+#            sel = amp!=0
+
+#            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
+#                             degree=2, npoints=5)
+            lin = LinearNDInterpolator(x0, model)
 
             return lin
 
@@ -399,6 +421,12 @@ class TemplateFitter:
             from keras.layers import Dense
             import keras
 
+            import tensorflow as tf
+
+            def chi2_loss(y_true, y_pred):
+                squared_difference = tf.abs(y_true - y_pred)/(tf.abs(y_true)+0.1)
+                return tf.reduce_mean(squared_difference, axis=-1)
+
             model = Sequential()
             model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
 
@@ -406,7 +434,9 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mse',
+            model.compile(#loss=chi2_loss,
+                          loss='mean_absolute_error',
+                          #loss="mean_absolute_percentage_error",
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
@@ -415,7 +445,7 @@ class TemplateFitter:
 
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
-                      callbacks=[stopping], validation_split=0.1, verbose=0)
+                      callbacks=[stopping], validation_split=0.1, verbose=1)
 
         return model
 
