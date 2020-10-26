@@ -19,6 +19,7 @@ from ctapipe.image import tailcuts_clean
 from ctapipe.calib import CameraCalibrator
 from ctapipe.image.extractor import FullWaveformSum
 
+
 def find_nearest_bin(array, value):
     """
     Find nearest value in an array
@@ -40,7 +41,7 @@ class TemplateFitter:
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  maximum_offset=10*u.deg,
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn",
-		 tailcuts=(7, 14), min_amp=30):
+                 tailcuts=(7, 14), min_amp=30, amplitude_correction=False):
         """
 
         :param eff_fl: float
@@ -67,7 +68,16 @@ class TemplateFitter:
         self.tailcuts = tailcuts
         self.min_amp = min_amp
 
-    def read_templates(self, filename, max_events=1e9):
+        self.templates = dict()  # Pixel amplitude
+        self.template_fit = dict()  # Pixel amplitude
+
+        self.templates_xb = dict()  # Rotated X position
+        self.templates_yb = dict()  # Rotated Y positions
+        self.correction = dict()
+
+        self.amplitude_correction = amplitude_correction
+
+    def read_templates(self, filename, max_events=1e9, fill_correction=False):
         """
         This is a pretty standard ctapipe event loop that calibrates events, rotates
         them into a common frame and then stores the pixel values in a list
@@ -76,15 +86,14 @@ class TemplateFitter:
             Location of input
         :param max_events: int
             Maximum number of events to include in the loop
+        :param fill_correction: bool
+            Fill correction factor table
         :return: tuple
             Return 3 lists of amplitude and rotated x,y positions of all pixels in all
             events
         """
 
         # Create dictionaries to contain our output
-        templates = dict()  # Pixel amplitude
-        templates_xb = dict()  # Rotated X position
-        templates_yb = dict()  # Rotated Y positions
 
         # Create a dummy time for our AltAz objects
         dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
@@ -110,13 +119,10 @@ class TemplateFitter:
                 # Create coordinate objects for source position
                 src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
                                frame=AltAz(obstime=dummy_time))
-
-                # Store simulated event energy
-                energy = mc.energy
-
-                if point.separation(point):
+                #print("here1", point.separation(src),  self.maximum_offset)
+                if point.separation(src) > self.maximum_offset:
                     continue
-
+                #print("here2")
                 # And transform into nominal system (where we store our templates)
                 source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -201,11 +207,13 @@ class TemplateFitter:
                                           boundary_thresh=self.tailcuts[1],
                                           min_number_picture_neighbors=1)
                     amp_sum = np.sum(pmt_signal[mask510])
+                    if fill_correction:
+                        mask = np.logical_and(mask, mask510)
 
                     if amp_sum < self.min_amp:
                         continue
 
-                    # Make sure everythin is 32 bit
+                    # Make sure everything is 32 bit
                     x = x[mask].astype(np.float32)
                     y = y[mask].astype(np.float32)
                     image = pmt_signal[mask].astype(np.float32)
@@ -224,28 +232,43 @@ class TemplateFitter:
                     az = point.az.to(u.deg).value
 
                     # Now fill up our output with the X, Y and amplitude of our pixels
-                    if (zen, az, energy.value, int(impact), x_diff_bin) in templates.keys():
-                        # Extend the list if an entry already exists
-                        templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(image)
-                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(x.to(u.deg).value)
-                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(y.to(u.deg).value)
+                    if fill_correction:
+                        from scipy.interpolate import RegularGridInterpolator
+                        xb = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+                        yb = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+                        key = zen, az, energy.value, int(impact), x_diff_bin
+
+                        if key in self.template_fit.keys():
+                            interp = RegularGridInterpolator((yb, xb), self.template_fit[key], bounds_error=False)
+                            pred = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
+
+                            if key in self.correction.keys():
+                                self.correction[key] = np.append(self.correction[key], image/pred)
+                            else:
+                                self.correction[key] = (image/pred)
                     else:
-                        templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            image.tolist()
-                        templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            x.value.tolist()
-                        templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            y.value.tolist()
+                        if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
+                            # Extend the list if an entry already exists
+                            self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                                extend(image)
+                            self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                                extend(x.to(u.deg).value)
+                            self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                                extend(y.to(u.deg).value)
+                        else:
+                            self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                                image.tolist()
+                            self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                                x.value.tolist()
+                            self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                                y.value.tolist()
 
                 if num > max_events:
-                    return templates, templates_xb, templates_yb
+                    return self.templates, self.templates_xb, self.templates_yb
 
                 num += 1
 
-        return templates, templates_xb, templates_yb
+        return self.templates, self.templates_xb, self.templates_yb
 
     def fit_templates(self, amplitude, x_pos, y_pos,
                       make_variance_template, max_fitpoints):
@@ -581,9 +604,13 @@ class TemplateFitter:
                                                                          make_variance,
                                                                          max_fitpoints)
             templates.update(file_templates)
+            self.template_fit = templates
 
             if make_variance:
                 variance_templates.update(file_variance_templates)
+
+            if self.amplitude_correction:
+                _ = self.read_templates(filename, max_events, fill_correction=True)
 
             pix_lists = None
             file_templates = None
@@ -595,8 +622,14 @@ class TemplateFitter:
             if make_variance:
                 variance_templates = self.extend_template_coverage(variance_templates)
 
+        if self.amplitude_correction:
+
+            for key in self.correction.keys():
+                print(key,  np.average(self.correction[key]))
+                self.template_fit[key] = self.template_fit[key] * np.average(self.correction[key])
+
         file_handler = gzip.open(output_file, "wb")
-        pickle.dump(templates, file_handler)
+        pickle.dump(self.template_fit, file_handler)
         file_handler.close()
 
         if make_variance:
