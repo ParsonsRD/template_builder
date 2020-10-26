@@ -298,6 +298,7 @@ class TemplateFitter:
             pixel_pos = np.vstack([x,y])
 
             # Fit with MLP
+            model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
 
             if str(type(model)) == \
                     "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
