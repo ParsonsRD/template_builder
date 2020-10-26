@@ -40,7 +40,7 @@ class TemplateFitter:
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  maximum_offset=10*u.deg,
                  verbose=False, rotation_angle=0 * u.deg, training_library="sklearn",
-		 tailcuts=(7, 14), min_amp=30):
+                 tailcuts=(7, 14), min_amp=30):
         """
 
         :param eff_fl: float
@@ -149,7 +149,10 @@ class TemplateFitter:
                 for tel_id in event.dl0.tels_with_data:
 
                     #  Get pixel signal
-                    pmt_signal = event.dl1.tel[tel_id].image
+                    hg, lg = np.sum(event.r1.tel[tel_id].waveform, axis=2)
+                    pmt_signal = hg
+                    pmt_signal[pmt_signal > 150] = lg[pmt_signal > 150]
+                    #pmt_signal = event.dl1.tel[tel_id].image
 
                     # Get pixel coordinates and convert to the nominal system
                     geom = event.inst.subarray.tel[tel_id].camera
@@ -198,10 +201,10 @@ class TemplateFitter:
                                           min_number_picture_neighbors=1)
                     amp_sum = np.sum(pmt_signal[mask510])
 
-                    if amp_sum<self.min_amp:
+                    if amp_sum < self.min_amp:
                         continue
 
-                    # Make sure everythin is 32 bit
+                    # Make sure everything is 32 bit
                     x = x[mask].astype(np.float32)
                     y = y[mask].astype(np.float32)
                     image = pmt_signal[mask].astype(np.float32)
@@ -295,7 +298,7 @@ class TemplateFitter:
             pixel_pos = np.vstack([x,y])
 
             # Fit with MLP
-            model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
+
             if str(type(model)) == \
                     "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
                 nn_out = model(grid.T)
@@ -350,6 +353,8 @@ class TemplateFitter:
             Fitted MLP model
         """
         pixel_pos = pixel_pos.T
+        if training_library == "KNN":
+            max_fitpoints = None
 
         # If we put a limit on this then randomly choose points
         if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
@@ -362,6 +367,9 @@ class TemplateFitter:
             print("Fitting template using", training_library, "with", amp.shape[0],
                   "total pixels")
 
+        from sklearn.model_selection import train_test_split
+        pixel_pos, pixel_pos_test, amp, amp_test = train_test_split(pixel_pos, amp, test_size=0.2)
+
         # We need a large number of layers to get this fit right
         if training_library == "sklearn":
             from sklearn.neural_network import MLPRegressor
@@ -370,18 +378,23 @@ class TemplateFitter:
                                  max_iter=1000, tol=0,
                                  early_stopping=True, verbose=False,
                                  n_iter_no_change=10)
+            model.fit(pixel_pos, amp)
 
-            pixel_pos = np.array([pixel_pos.T[0], np.abs(pixel_pos.T[1])]).T
-            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
-
-            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
-            amp = np.concatenate((amp, amp))
+        elif training_library == "KRR":
+            from sklearn.kernel_ridge import KernelRidge
+            from sklearn.svm import SVR
+            model = SVR() #KernelRidge(kernel="linear")
             model.fit(pixel_pos, amp)
 
         elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor
+            from sklearn.neighbors import RadiusNeighborsRegressor, KNeighborsRegressor
 
-            model = KNeighborsRegressor(10)
+            def gaus(x):
+                from scipy.stats import norm
+                w = norm.ppf(x, scale=0.02)
+                return w
+
+            model = KNeighborsRegressor(10, weights=gaus)
             model.fit(pixel_pos, amp)
 
         elif training_library == "loess":
@@ -391,7 +404,6 @@ class TemplateFitter:
             model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
                              degree=3, frac=0.005)
             lin = LinearNDInterpolator(pixel_pos[sel], model[0])
-
             return lin
 
         elif training_library == "keras":
@@ -406,7 +418,7 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mse',
+            model.compile(loss='mean_absolute_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
@@ -416,7 +428,14 @@ class TemplateFitter:
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
+        from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+        pred = model.predict(pixel_pos_test)
+        pred[np.isnan(pred)] = 0
+        pred[pred<0] = 0
 
+        print("Regression completed with MSE",
+              mean_absolute_error(pred[amp_test > 5], amp_test[amp_test > 5]),
+              "and r2 score", r2_score(pred[amp_test > 5], amp_test[amp_test > 5]))
         return model
 
     def extend_xmax_range(self, templates):

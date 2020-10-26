@@ -30,7 +30,7 @@ def test_template_read():
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
     assert data_dir is not None
-    data_dir += "gamma_HESS_example.simhess.gz"
+    data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Read in the file
     amp, raw_x, raw_y = fitter.read_templates(data_dir)
@@ -59,7 +59,7 @@ def test_template_fitting():
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
-    data_dir += "gamma_HESS_example.simhess.gz"
+    data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Read in the file
     amp, raw_x, raw_y = fitter.read_templates(data_dir)
@@ -120,7 +120,7 @@ def test_full_fit():
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
-    data_dir += "gamma_HESS_example.simhess.gz"
+    data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Run full template generation
     template, var_template = fitter.generate_templates([data_dir], "./test.template.gz",
