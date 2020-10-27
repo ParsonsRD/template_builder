@@ -628,8 +628,11 @@ class TemplateFitter:
         if self.amplitude_correction:
 
             for key in self.correction.keys():
-                print(key,  np.average(self.correction[key]), self.correction[key].shape)
-                self.template_fit[key] = self.template_fit[key] * np.average(self.correction[key])
+                correction_factor = np.median(self.correction[key])
+                correction_factor_error = np.std(self.correction[key]) / np.sqrt(float(len(self.correction[key])))
+
+                if correction_factor > 0 and correction_factor_error / correction_factor < 0.2:
+                    self.template_fit[key] = self.template_fit[key] * np.median(self.correction[key])
 
         file_handler = gzip.open(output_file, "wb")
         pickle.dump(self.template_fit, file_handler)
