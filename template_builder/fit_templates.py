@@ -15,7 +15,7 @@ from ctapipe.io.eventsource import event_source
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
-from ctapipe.image import tailcuts_clean
+from ctapipe.image import tailcuts_clean, dilate
 from ctapipe.calib import CameraCalibrator
 from ctapipe.image.extractor import FullWaveformSum
 
@@ -206,6 +206,9 @@ class TemplateFitter:
                                           picture_thresh=self.tailcuts[0],
                                           boundary_thresh=self.tailcuts[1],
                                           min_number_picture_neighbors=1)
+                    mask510 = dilate(geom, mask510)
+                    mask510 = dilate(geom, mask510)
+
                     amp_sum = np.sum(pmt_signal[mask510])
                     if fill_correction:
                         mask = np.logical_and(mask, mask510)
