@@ -1,3 +1,7 @@
+
+
+
+
 """
 
 """
@@ -157,9 +161,12 @@ class TemplateFitter:
                 # Loop over triggered telescopes
                 for tel_id in event.dl0.tels_with_data:
                    #  Get pixel signal
-                    hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
-                    pmt_signal = hg
-                    pmt_signal[pmt_signal>150] = lg[pmt_signal>150]
+                    try:
+                        hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
+                        pmt_signal = hg
+                        pmt_signal[pmt_signal>150] = lg[pmt_signal>150]
+                    except ValueError:
+                        pmt_signal = np.sum(event.r1.tel[tel_id].waveform, axis=-1)[0]
 
                     # Get pixel coordinates and convert to the nominal system
                     geom = event.inst.subarray.tel[tel_id].camera
@@ -206,15 +213,15 @@ class TemplateFitter:
                                           picture_thresh=self.tailcuts[0],
                                           boundary_thresh=self.tailcuts[1],
                                           min_number_picture_neighbors=1)
-                    mask510 = dilate(geom, mask510)
-                    mask510 = dilate(geom, mask510)
-
                     amp_sum = np.sum(pmt_signal[mask510])
-                    if fill_correction:
-                        mask = np.logical_and(mask, mask510)
-
                     if amp_sum < self.min_amp:
                         continue
+
+                    mask510 = dilate(geom, mask510)
+                    mask510 = dilate(geom, mask510)
+
+                    if fill_correction:
+                        mask = np.logical_and(mask, mask510)
 
                     # Make sure everything is 32 bit
                     x = x[mask].astype(np.float32)
@@ -422,7 +429,7 @@ class TemplateFitter:
             from keras.models import Sequential
             from keras.layers import Dense
             import keras
-
+            
             model = Sequential()
             model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
 
@@ -436,7 +443,12 @@ class TemplateFitter:
                                                      min_delta=0.0,
                                                      patience=50,
                                                      verbose=2, mode='auto')
-
+            
+#            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+        
+#            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+#            amp = np.concatenate((amp, amp))
+        
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
