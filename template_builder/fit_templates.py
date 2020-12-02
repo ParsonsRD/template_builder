@@ -324,7 +324,7 @@ class TemplateFitter:
             x = x_pos[key]
 
             # Stack up pixel positions
-            pixel_pos = np.vstack([x,y])
+            pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
             model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
@@ -412,10 +412,24 @@ class TemplateFitter:
             from KDEpy import FFTKDE
             from scipy.interpolate import LinearNDInterpolator
 
-            kde = FFTKDE(bw=0.07).fit(pixel_pos, weights=amp)
-            points, out = kde.evaluate((self.bins[0], self.bins[1]))
-            #print(points.shape, points)
-            lin = LinearNDInterpolator(points, out, fill_value=0)
+            x, y = pixel_pos.T
+            data = np.vstack((x, y, amp))
+            #print(data.shape)
+            kde = FFTKDE(bw=0.05).fit(data.T)
+            points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
+            points_x, points_y, points_z = points.T
+            #print(points_z.shape, points, out.shape)
+
+            av_z = np.average(points_z)
+            print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
+            av_val = np.sum((out*points_z).reshape((self.bins[0], self.bins[1], 200)), axis=-1) / \
+                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+
+            points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+            points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+
+            int_points = np.vstack((points_x, points_y)).T
+            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, av_val.ravel(), fill_value=0)
             return lin
 
         elif training_library == "KNN":
