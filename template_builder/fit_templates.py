@@ -214,14 +214,23 @@ class TemplateFitter:
                                           boundary_thresh=self.tailcuts[1],
                                           min_number_picture_neighbors=1)
                     amp_sum = np.sum(pmt_signal[mask510])
-                    if amp_sum < self.min_amp:
-                        continue
-
-                    mask510 = dilate(geom, mask510)
-                    mask510 = dilate(geom, mask510)
 
                     if fill_correction:
                         mask = np.logical_and(mask, mask510)
+
+                    if self.training_library == "kde" and fill_correction==False:
+                        for i in range(4):
+                            mask510 = dilate(geom, mask510)
+                        mask = np.logical_and(mask, mask510)
+
+                    if amp_sum < self.min_amp:
+                        continue
+
+                    #mask510 = dilate(geom, mask510)
+                    #mask510 = dilate(geom, mask510)
+
+                    #if fill_correction:
+                    #    mask = np.logical_and(mask, mask510)
 
                     # Make sure everything is 32 bit
                     x = x[mask].astype(np.float32)
@@ -338,7 +347,11 @@ class TemplateFitter:
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
-
+            elif self.training_library == "kde":
+                points, nn_out = model.evaluate((self.bins[0], self.bins[1]))#grid.T)
+                # rint(nn_out)
+                nn_out = nn_out.reshape((self.bins[0], self.bins[1]))
+                nn_out[np.isinf(nn_out)] = 0
             else:
                 # Evaluate MLP fit over our grid
                 nn_out = model.predict(grid.T)
@@ -409,6 +422,15 @@ class TemplateFitter:
                                  n_iter_no_change=10)
 
             model.fit(pixel_pos, amp)
+        elif training_library == "kde":
+            from KDEpy import FFTKDE
+            from scipy.interpolate import LinearNDInterpolator
+
+            kde = FFTKDE(kernel="exponential",bw=0.02).fit(pixel_pos, weights=amp)
+            points, out = kde.evaluate((self.bins[0], self.bins[1]))
+            #print(points.shape, points)
+            lin = LinearNDInterpolator(points, out, fill_value=0)
+            return lin
 
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor
@@ -643,8 +665,11 @@ class TemplateFitter:
                 correction_factor = np.median(self.correction[key])
                 correction_factor_error = np.std(self.correction[key]) / np.sqrt(float(len(self.correction[key])))
 
-                if correction_factor > 0 and correction_factor_error / correction_factor < 0.2:
+                print(correction_factor_error / correction_factor, correction_factor)
+                if correction_factor > 0 and correction_factor_error / correction_factor < 0.1:
                     self.template_fit[key] = self.template_fit[key] * np.median(self.correction[key])
+                else:
+                    self.template_fit.pop(key)
 
         file_handler = gzip.open(output_file, "wb")
         pickle.dump(self.template_fit, file_handler)
