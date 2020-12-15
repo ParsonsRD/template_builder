@@ -78,6 +78,7 @@ class TemplateFitter:
         self.templates_xb = dict()  # Rotated X position
         self.templates_yb = dict()  # Rotated Y positions
         self.correction = dict()
+        self.count = dict()
 
         self.amplitude_correction = amplitude_correction
 
@@ -218,10 +219,10 @@ class TemplateFitter:
                     if fill_correction:
                         mask = np.logical_and(mask, mask510)
 
-                    if self.training_library == "kde" and fill_correction==False:
-                        for i in range(4):
-                            mask510 = dilate(geom, mask510)
-                        mask = np.logical_and(mask, mask510)
+#                    if self.training_library == "kde" and fill_correction==False:
+#                        for i in range(4):
+#                            mask510 = dilate(geom, mask510)
+#                        mask = np.logical_and(mask, mask510)
 
                     if amp_sum < self.min_amp:
                         continue
@@ -274,6 +275,7 @@ class TemplateFitter:
                                 extend(x.to(u.deg).value)
                             self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
                                 extend(y.to(u.deg).value)
+                            self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
                         else:
                             self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                                 image.tolist()
@@ -281,6 +283,7 @@ class TemplateFitter:
                                 x.value.tolist()
                             self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
                                 y.value.tolist()
+                            self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
 
                 if num > max_events:
                     return self.templates, self.templates_xb, self.templates_yb
@@ -338,16 +341,21 @@ class TemplateFitter:
             x = x_pos[key]
 
             # Stack up pixel positions
-            pixel_pos = np.vstack([x,y])
+            pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            model = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
+            training_library = "kde"
+            if self.count[key] < 200:
+                training_library = "kde"
+
+            model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
+
             if str(type(model)) == \
                     "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
-            elif self.training_library == "kde":
+            elif training_library == "kde":
                 points, nn_out = model.evaluate((self.bins[0], self.bins[1]))#grid.T)
                 # rint(nn_out)
                 nn_out = nn_out.reshape((self.bins[0], self.bins[1]))
@@ -426,10 +434,25 @@ class TemplateFitter:
             from KDEpy import FFTKDE
             from scipy.interpolate import LinearNDInterpolator
 
-            kde = FFTKDE(kernel="exponential",bw=0.02).fit(pixel_pos, weights=amp)
-            points, out = kde.evaluate((self.bins[0], self.bins[1]))
-            #print(points.shape, points)
-            lin = LinearNDInterpolator(points, out, fill_value=0)
+            x, y = pixel_pos.T
+            data = np.vstack((x, y, amp))
+            #print(data.shape)
+            kde = FFTKDE(bw=0.015).fit(data.T)
+            points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
+            points_x, points_y, points_z = points.T
+            #print(points_z.shape, points, out.shape)
+
+            av_z = np.average(points_z)
+            print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
+            av_val = np.sum((out*points_z).reshape((self.bins[0], self.bins[1], 200)), axis=-1) / \
+                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+
+            points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+            points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+
+            int_points = np.vstack((points_x, points_y)).T
+            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, av_val.ravel(), fill_value=0)
+
             return lin
 
         elif training_library == "KNN":
@@ -463,7 +486,7 @@ class TemplateFitter:
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
-                                                     patience=50,
+                                                     patience=10,
                                                      verbose=2, mode='auto')
             
 #            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
@@ -472,7 +495,7 @@ class TemplateFitter:
 #            amp = np.concatenate((amp, amp))
         
             model.fit(pixel_pos, amp, epochs=10000,
-                      batch_size=50000,
+                      batch_size=100000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
 
         return model
