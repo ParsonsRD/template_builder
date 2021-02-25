@@ -228,16 +228,16 @@ tempprefix="temp_${zenith_angle}deg_${azimuth_angle}deg_run${runnum}"
 #fi
 
 if [ "$offset" = "0.0" ]; then
-   output_name="${outprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}"
-   temp_name="${tempprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}"
+   output_name="${outprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_${CORSIKA_EMIN}"
+   temp_name="${tempprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_${CORSIKA_EMIN}"
 
 else
-   output_name="${outprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_off${offset}"
-   temp_name="${tempprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_off${offset}"
+   output_name="${outprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_off${offset}_${CORSIKA_EMIN}"
+   temp_name="${tempprefix}_${pixels}_${threshold}_${basecfg}${transtype}${extra_suffix}_off${offset}_${CORSIKA_EMIN}"
 fi
 
 if [ "$primary" = "gamma" -a "$nonzerocone" = "1" ]; then
-   output_name="${output_name}_cone${CORSIKA_CONE}"
+   output_name="${output_name}_cone${CORSIKA_CONE}_${CORSIKA_EMIN}"
 fi
 
 output_file="${outputpath}/Data/${output_name}.simhess.gz"

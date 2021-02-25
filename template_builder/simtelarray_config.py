@@ -55,7 +55,7 @@ class SimTelArrayConfig:
 
         self.offsets = offsets
 
-    def run_setup(self, simtel_directory, corsika_input):
+    def run_setup(self, simtel_directory, corsika_input, split_simulations=1):
         """
         Create directory structure and return run commands
 
@@ -71,7 +71,7 @@ class SimTelArrayConfig:
         output_paths = self.make_config(simtel_directory)
 
         # Then generate command to run stuff
-        return self.make_run_command(simtel_directory, corsika_input), output_paths
+        return self.make_run_command(simtel_directory, corsika_input, split_simulations), output_paths
 
     def make_config(self, simtel_directory):
         """
@@ -192,7 +192,7 @@ class SimTelArrayConfig:
         return
 
     @staticmethod
-    def make_run_command(simtel_directory, corsika_input):
+    def make_run_command(simtel_directory, corsika_input, split_simulations=1):
         """
         Make command line input to run simulations
 
@@ -213,6 +213,7 @@ class SimTelArrayConfig:
                          "--run ${CORSIKA_PATH}/corsika " \
                          "-p ${CORSIKA_DATA} " + input_value
 
-            commands.append(run_string)
+            for i in range(split_simulations):
+                commands.append(run_string)
 
         return commands

@@ -102,6 +102,9 @@ def generate_templates():
     parser.add_argument('-o', '--output', default="test.templates.gz",
                         metavar="output file",
                         help='Name of output file')
+    parser.add_argument('-s', '--split', default="1",
+                        metavar="split",
+                        help='Number of simulation points to split each run into')
 
     parser.add_argument('--simulate-only', dest='simulate_only', action='store_true')
     parser.add_argument('--SGE', dest='SGE', action='store_true')
@@ -112,12 +115,13 @@ def generate_templates():
     corsika_input, simulation_input, telescope_input, fit_input = \
         parse_config(args.config)
     output_file = args.output
+    split_simulations = int(args.split)
 
     # Generate our range of CORSIKA input cards
     corsika = CORSIKAInput(input_parameters=corsika_input,
-                           min_events=simulation_input["min_events"])
+                           min_events=int(simulation_input["min_events"]/split_simulations))
 
-    cards = corsika.get_input_cards(simulation_input["event_number"],
+    cards = corsika.get_input_cards(int(simulation_input["event_number"]/split_simulations),
                                     simulation_input["altitude"],
                                     simulation_input["azimuth"],
                                     simulation_input["energy_bins"],
@@ -141,7 +145,8 @@ def generate_templates():
 
     run_commands, output_paths = \
         sim_telarray_config.run_setup(telescope_input["sim_telarray_directory"],
-                                      corsika_input_file_names)
+                                      corsika_input_file_names, 
+                                      split_simulations=split_simulations)
 
     # Annoyingly sim_telarray doesn't let us choose our output file name (at least in
     # this script setup). So we instead look in output directory now and after our
