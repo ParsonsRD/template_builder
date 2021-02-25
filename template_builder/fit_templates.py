@@ -435,12 +435,18 @@ class TemplateFitter:
             from scipy.interpolate import LinearNDInterpolator
 
             x, y = pixel_pos.T
-            data = np.vstack((x, y, amp))
-            #print(data.shape)
-            kde = FFTKDE(bw=0.015).fit(data.T)
+            amp_fit = np.concatenate((amp, amp))
+            y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
+            x_fit = np.concatenate((x, x))
+
+            scale = 1#0./np.max(amp)
+            data = np.vstack((x_fit, y_fit, amp_fit * scale))
+
+            bw = 0.02
+            kde = FFTKDE(bw=bw).fit(data.T)
             points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
             points_x, points_y, points_z = points.T
-            #print(points_z.shape, points, out.shape)
+            points_z = points_z * scale
 
             av_z = np.average(points_z)
             print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
@@ -450,7 +456,6 @@ class TemplateFitter:
             points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
             points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
 
-            int_points = np.vstack((points_x, points_y)).T
             lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, av_val.ravel(), fill_value=0)
 
             return lin
