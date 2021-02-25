@@ -663,23 +663,24 @@ class TemplateFitter:
 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                         pix_lists[1],
-                                                                         pix_lists[2],
-                                                                         make_variance,
-                                                                         max_fitpoints)
-            templates.update(file_templates)
-            self.template_fit = templates
+        
+        file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
+                                                                     pix_lists[1],
+                                                                     pix_lists[2],
+                                                                     make_variance,
+                                                                     max_fitpoints)
+        templates.update(file_templates)
+        self.template_fit = templates
 
-            if make_variance:
-                variance_templates.update(file_variance_templates)
+        if make_variance:
+            variance_templates.update(file_variance_templates)
 
-            if self.amplitude_correction:
-                _ = self.read_templates(filename, max_events, fill_correction=True)
+        if self.amplitude_correction:
+            _ = self.read_templates(filename, max_events, fill_correction=True)
 
-            pix_lists = None
-            file_templates = None
-            file_variance_templates = None
+        pix_lists = None
+        file_templates = None
+        file_variance_templates = None
 
         # Extend coverage of the templates by extrapolation if requested
         if extend_range:
