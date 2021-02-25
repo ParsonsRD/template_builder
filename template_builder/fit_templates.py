@@ -1,7 +1,3 @@
-
-
-
-
 """
 
 """
@@ -344,9 +340,9 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            training_library = "kde"
-            if self.count[key] < 200:
-                training_library = "kde"
+            training_library = self.training_library
+#            if self.count[key] < 200:
+#                training_library = "kde"
 
             model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
 
@@ -433,14 +429,18 @@ class TemplateFitter:
         elif training_library == "kde":
             from KDEpy import FFTKDE
             from scipy.interpolate import LinearNDInterpolator
-
+            
+            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+            amp = np.concatenate((amp, amp))
             x, y = pixel_pos.T
             data = np.vstack((x, y, amp))
-            #print(data.shape)
-            kde = FFTKDE(bw=0.015).fit(data.T)
+
+            kde = FFTKDE(bw=0.025).fit(data.T)
             points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
             points_x, points_y, points_z = points.T
             #print(points_z.shape, points, out.shape)
+            points_z = points_z
 
             av_z = np.average(points_z)
             print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
@@ -482,7 +482,7 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mean_absolute_error',
+            model.compile(loss='mean_squared_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
