@@ -344,9 +344,9 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            training_library = "kde"
-            if self.count[key] < 200:
-                training_library = "kde"
+            #training_library = "kde"
+            #if self.count[key] < 200:
+            #    training_library = "kde"
 
             model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
 
