@@ -127,7 +127,7 @@ class TemplateFitter:
                 #print("here1", point.separation(src),  self.maximum_offset)
                 if point.separation(src) > self.maximum_offset:
                     continue
-                #print("here2")
+
                 # And transform into nominal system (where we store our templates)
                 source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -219,19 +219,8 @@ class TemplateFitter:
                     if fill_correction:
                         mask = np.logical_and(mask, mask510)
 
-#                    if self.training_library == "kde" and fill_correction==False:
-#                        for i in range(4):
-#                            mask510 = dilate(geom, mask510)
-#                        mask = np.logical_and(mask, mask510)
-
                     if amp_sum < self.min_amp:
                         continue
-
-                    #mask510 = dilate(geom, mask510)
-                    #mask510 = dilate(geom, mask510)
-
-                    #if fill_correction:
-                    #    mask = np.logical_and(mask, mask510)
 
                     # Make sure everything is 32 bit
                     x = x[mask].astype(np.float32)
@@ -348,14 +337,14 @@ class TemplateFitter:
             #if self.count[key] < 200:
             #    training_library = "kde"
 
-            model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
+            model = self.perform_fit(amp, pixel_pos, self.training_library, max_fitpoints)
 
             if str(type(model)) == \
                     "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
                 nn_out = model(grid.T)
                 nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
                 nn_out[np.isinf(nn_out)] = 0
-            elif training_library == "kde":
+            elif self.training_library == "kde":
                 points, nn_out = model.evaluate((self.bins[0], self.bins[1]))#grid.T)
                 # rint(nn_out)
                 nn_out = nn_out.reshape((self.bins[0], self.bins[1]))
@@ -420,17 +409,7 @@ class TemplateFitter:
             print("Fitting template using", training_library, "with", amp.shape[0],
                   "total pixels")
 
-        # We need a large number of layers to get this fit right
-        if training_library == "sklearn":
-            from sklearn.neural_network import MLPRegressor
-
-            model = MLPRegressor(hidden_layer_sizes=nodes, activation="relu",
-                                 max_iter=1000, tol=0,
-                                 early_stopping=True, verbose=False,
-                                 n_iter_no_change=10)
-
-            model.fit(pixel_pos, amp)
-        elif training_library == "kde":
+        if training_library == "kde":
             from KDEpy import FFTKDE
             from scipy.interpolate import LinearNDInterpolator
 
@@ -439,7 +418,7 @@ class TemplateFitter:
             y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
             x_fit = np.concatenate((x, x))
 
-            scale = 1#0./np.max(amp)
+            scale = 1
             data = np.vstack((x_fit, y_fit, amp_fit * scale))
 
             bw = 0.02
@@ -450,29 +429,19 @@ class TemplateFitter:
 
             av_z = np.average(points_z)
             print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
-            av_val = np.sum((out*points_z).reshape((self.bins[0], self.bins[1], 200)), axis=-1) / \
+            weights = (out*points_z).reshape((self.bins[0], self.bins[1], 200))
+            average_value = np.sum(weights, axis=-1) / \
                 np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
 
+            squared_average_value = np.sum(weights**2, axis=-1) / \
+                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+
+            variance = squared_average_value - average_value**2
             points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
             points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
 
-            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, av_val.ravel(), fill_value=0)
+            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
 
-            return lin
-
-        elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor
-
-            model = KNeighborsRegressor(10)
-            model.fit(pixel_pos, amp)
-
-        elif training_library == "loess":
-            from loess.loess_2d import loess_2d
-            from scipy.interpolate import LinearNDInterpolator
-            sel = amp!=0
-            model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
-                             degree=3, frac=0.005)
-            lin = LinearNDInterpolator(pixel_pos[sel], model[0])
             return lin
 
         elif training_library == "keras":
@@ -494,10 +463,10 @@ class TemplateFitter:
                                                      patience=10,
                                                      verbose=2, mode='auto')
             
-#            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
         
-#            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
-#            amp = np.concatenate((amp, amp))
+            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+            amp = np.concatenate((amp, amp))
         
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=100000,
