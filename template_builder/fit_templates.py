@@ -341,9 +341,6 @@ class TemplateFitter:
 
             # Fit with MLP
             training_library = self.training_library
-#            if self.count[key] < 200:
-#                training_library = "kde"
-
             model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
 
             if str(type(model)) == \
@@ -435,43 +432,55 @@ class TemplateFitter:
             amp = np.concatenate((amp, amp))
             x, y = pixel_pos.T
 
-            amp_fit = np.concatenate((amp, amp))
-            y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
-            x_fit = np.concatenate((x, x))
+            amp_fit = amp#np.concatenate((amp, amp))
+            y_fit = y#np.concatenate((np.abs(y), -1*np.abs(y)))
+            x_fit = x#np.concatenate((x, x))
 
             scale = 1#0./np.max(amp)
             data = np.vstack((x_fit, y_fit, amp_fit * scale))
 
             bw = 0.02
-            kde = FFTKDE(bw=bw).fit(data.T)
-            points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
+            kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
+            z_bins = 400
+            points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
             points_x, points_y, points_z = points.T
             points_z = points_z * scale
-
+            
+            print(points_z, np.max(amp_fit))
             av_z = np.average(points_z)
             print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
-            av_val = np.sum((out*points_z).reshape((self.bins[0], self.bins[1], 200)), axis=-1) / \
-                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+            av_val = np.sum((out*points_z).reshape((self.bins[0], self.bins[1], z_bins)), axis=-1) / \
+                np.sum(out.reshape((self.bins[0], self.bins[1], z_bins)), axis=-1)
 
-            points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
-            points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+            points_x = points_x.reshape((self.bins[0], self.bins[1], z_bins))[:, :, 0].ravel()
+            points_y = points_y.reshape((self.bins[0], self.bins[1], z_bins))[:, :, 0].ravel()
 
             lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, av_val.ravel(), fill_value=0)
 
             return lin
 
         elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor
-
-            model = KNeighborsRegressor(10)
+            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
+            model = RadiusNeighborsRegressor(0.03)
             model.fit(pixel_pos, amp)
+            
+            x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+            y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+            xx, yy = np.meshgrid(x, y)
+            grid = np.vstack((xx.ravel(), yy.ravel()))
+
+            dist, ind = model.radius_neighbors(grid)
+            
+#
+
+            for bin in range
 
         elif training_library == "loess":
             from loess.loess_2d import loess_2d
             from scipy.interpolate import LinearNDInterpolator
             sel = amp!=0
             model = loess_2d(pixel_pos.T[0][sel], pixel_pos.T[1][sel], amp[sel],
-                             degree=3, frac=0.005)
+                             degree=1, frac=10/float(amp[sel].shape[0]))
             lin = LinearNDInterpolator(pixel_pos[sel], model[0])
             return lin
 
@@ -663,23 +672,24 @@ class TemplateFitter:
 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                         pix_lists[1],
-                                                                         pix_lists[2],
-                                                                         make_variance,
-                                                                         max_fitpoints)
-            templates.update(file_templates)
-            self.template_fit = templates
+        
+        file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
+                                                                     pix_lists[1],
+                                                                     pix_lists[2],
+                                                                     make_variance,
+                                                                     max_fitpoints)
+        templates.update(file_templates)
+        self.template_fit = templates
 
-            if make_variance:
-                variance_templates.update(file_variance_templates)
+        if make_variance:
+            variance_templates.update(file_variance_templates)
 
-            if self.amplitude_correction:
-                _ = self.read_templates(filename, max_events, fill_correction=True)
+        if self.amplitude_correction:
+            _ = self.read_templates(filename, max_events, fill_correction=True)
 
-            pix_lists = None
-            file_templates = None
-            file_variance_templates = None
+        pix_lists = None
+        file_templates = None
+        file_variance_templates = None
 
         # Extend coverage of the templates by extrapolation if requested
         if extend_range:
