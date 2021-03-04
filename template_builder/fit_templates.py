@@ -236,9 +236,8 @@ class TemplateFitter:
                     x_diff = mc_xmax - exp_xmax
 
                     x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-
-                    zen = 90 - point.alt.to(u.deg).value
                     az = point.az.to(u.deg).value
+                    zen = 90. - point.alt.to(u.deg).value
 
                     # Now fill up our output with the X, Y and amplitude of our pixels
                     if fill_correction:
@@ -314,7 +313,7 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in tqdm(list(amplitude.keys())):
+        for key in tqdm(list(amplitude.keys())[0:5]):
             if self.verbose and first:
                 print("Energy", key[2], "TeV")
                 first = False
@@ -349,6 +348,8 @@ class TemplateFitter:
                 # rint(nn_out)
                 nn_out = nn_out.reshape((self.bins[0], self.bins[1]))
                 nn_out[np.isinf(nn_out)] = 0
+            elif self.training_library == "KNN":
+                nn_out = model
             else:
                 # Evaluate MLP fit over our grid
                 nn_out = model.predict(grid.T)
@@ -357,10 +358,18 @@ class TemplateFitter:
 
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
-
+            
             if make_variance_template:
-                predicted_values = model.predict(pixel_pos.T)
+
+                if str(type(model)) == \
+                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
+                    predicted_values = model(pixel_pos.T)
+                else:
+                    predicted_values = model.predict(pixel_pos.T)
+                
                 predicted_values = predicted_values.ravel()
+                predicted_values[np.isinf(predicted_values)] = 0
+
                 # Take absolute and square after as the NN fits the squared deviation
                 # This is important due to the 1 sided distribution
                 variance = np.abs(amp - predicted_values)
@@ -444,6 +453,34 @@ class TemplateFitter:
 
             return lin
 
+        elif training_library == "KNN":
+            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
+            model = RadiusNeighborsRegressor(0.04)
+            model.fit(pixel_pos, amp)
+
+            x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+            y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+            xx, yy = np.meshgrid(x, y)
+            print(xx.shape)
+            xx = xx.T.ravel()
+            yy = yy.T.ravel()
+            grid = np.vstack((xx, yy)).T
+
+            dist, ind = model.radius_neighbors(grid)
+
+            from sklearn.linear_model import LinearRegression
+            lin = LinearRegression()
+
+            output = np.zeros(len(ind))
+            for bin in range(len(ind)):
+                if len(ind[bin]) == 0:
+                    continue
+                lin.fit(pixel_pos[ind[bin]], amp[ind[bin]])
+                output[bin] = lin.predict([[xx[bin], yy[bin]]])[0]
+                
+            output = output.reshape(self.bins)
+            return output
+
         elif training_library == "keras":
             from keras.models import Sequential
             from keras.layers import Dense
@@ -472,7 +509,7 @@ class TemplateFitter:
                       batch_size=100000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
 
-        return model
+            return model
 
     def extend_xmax_range(self, templates):
         """
