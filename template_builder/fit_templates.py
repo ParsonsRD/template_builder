@@ -313,7 +313,7 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in tqdm(list(amplitude.keys())[0:5]):
+        for key in tqdm(list(amplitude.keys())):
             if self.verbose and first:
                 print("Energy", key[2], "TeV")
                 first = False
@@ -455,7 +455,7 @@ class TemplateFitter:
 
         elif training_library == "KNN":
             from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
-            model = RadiusNeighborsRegressor(0.04)
+            model = RadiusNeighborsRegressor(0.06)
             model.fit(pixel_pos, amp)
 
             x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
@@ -468,15 +468,22 @@ class TemplateFitter:
 
             dist, ind = model.radius_neighbors(grid)
 
-            from sklearn.linear_model import LinearRegression
-            lin = LinearRegression()
+            from sklearn.linear_model import LinearRegression         
+            from sklearn.pipeline import make_pipeline
+            from sklearn.preprocessing import PolynomialFeatures
+
+            #lin = LinearRegression()
+            polyreg = make_pipeline(
+                    PolynomialFeatures(degree=2),
+                    LinearRegression()
+                    )
 
             output = np.zeros(len(ind))
             for bin in range(len(ind)):
                 if len(ind[bin]) == 0:
                     continue
-                lin.fit(pixel_pos[ind[bin]], amp[ind[bin]])
-                output[bin] = lin.predict([[xx[bin], yy[bin]]])[0]
+                polyreg.fit(pixel_pos[ind[bin]], amp[ind[bin]])
+                output[bin] = polyreg.predict([[xx[bin], yy[bin]]])[0]
                 
             output = output.reshape(self.bins)
             return output
