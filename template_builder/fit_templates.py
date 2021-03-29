@@ -219,9 +219,6 @@ class TemplateFitter:
                     x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
                     y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
                     
-                    if fill_correction:
-                        mask = np.logical_and(mask, mask510)
-                    
                     mask = mask510
                     for i in range(4):
                         mask = dilate(geom, mask)
@@ -247,43 +244,23 @@ class TemplateFitter:
                     zen = 90. - point.alt.to(u.deg).value
 
                     # Now fill up our output with the X, Y and amplitude of our pixels
-                    if fill_correction:
-                        from scipy.interpolate import RegularGridInterpolator
-                        xb = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
-                        yb = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-                        key = zen, az, energy.value, int(impact), x_diff_bin
-#                        print(key)
-                        if key in self.template_fit.keys():
-                            interp = RegularGridInterpolator((yb, xb), self.template_fit[key], bounds_error=False)
-                            pred = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
-                            
-                            interp_kde = RegularGridInterpolator((yb, xb), self.template_fit_kde[key], bounds_error=False)
-                            pred_kde = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
-
-                            print(np.sum(interp_kde), np.sum(pred_kde))
-
-                            if key in self.correction.keys():
-                                self.correction[key] = np.append(self.correction[key], np.sum(pred_kde)/np.sum(pred))
-                            else:
-                                self.correction[key] = (np.sum(pred_kde)/np.sum(pred))
+                    if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
+                        # Extend the list if an entry already exists
+                        self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(image)
+                        self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(x.to(u.deg).value)
+                        self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                            extend(y.to(u.deg).value)
+                        self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
                     else:
-                        if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
-                            # Extend the list if an entry already exists
-                            self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                                extend(image)
-                            self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                                extend(x.to(u.deg).value)
-                            self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                                extend(y.to(u.deg).value)
-                            self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
-                        else:
-                            self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                                image.tolist()
-                            self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                                x.value.tolist()
-                            self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                                y.value.tolist()
-                            self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
+                        self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            image.tolist()
+                        self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            x.value.tolist()
+                        self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                            y.value.tolist()
+                        self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
 
                 if num > max_events:
                     return self.templates, self.templates_xb, self.templates_yb
@@ -344,58 +321,13 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            training_library = self.training_library
-            model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
+            template_output = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
 
-            if str(type(model)) == \
-                    "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
-                nn_out = model(grid.T)
-                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-                nn_out[np.isinf(nn_out)] = 0
-            elif self.training_library == "kde":
-                points, nn_out = model.evaluate((self.bins[0], self.bins[1]))#grid.T)
-                # rint(nn_out)
-                nn_out = nn_out.reshape((self.bins[0], self.bins[1]))
-                nn_out[np.isinf(nn_out)] = 0
-            elif self.training_library == "KNN":
-                nn_out = model
-            else:
-                # Evaluate MLP fit over our grid
-#                nn_out = model.predict(grid.T)
-#                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
-                nn_out = model
-                nn_out[np.isinf(nn_out)] = 0
-#            print("sc",scale)
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
-                nn_out.astype(np.float32)
+                template_output.astype(np.float32)
             
-            if make_variance_template:
-
-                if str(type(model)) == \
-                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
-                    predicted_values = model(pixel_pos.T)
-                else:
-                    predicted_values = model.predict(pixel_pos.T)
-                
-                predicted_values = predicted_values.ravel()
-                predicted_values[np.isinf(predicted_values)] = 0
-
-                # Take absolute and square after as the NN fits the squared deviation
-                # This is important due to the 1 sided distribution
-                variance = np.abs(amp - predicted_values)
-                model_variance = self.perform_fit(variance, pixel_pos,
-                                                  self.training_library)
-
-                if str(type(model)) == \
-                        "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
-                    nn_out_variance = np.power(model_variance(grid.T), 2)
-                else:
-                    nn_out_variance = np.power(model_variance.predict(grid.T), 2)
-                nn_out_variance = nn_out_variance.reshape((self.bins[1], self.bins[0]))
-                nn_out_variance[np.isinf(nn_out)] = 0
-
-                variance_templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
-                    nn_out_variance.astype(np.float32)
+            #if make_variance_template:
+                # need better plan for var templates
 
         return templates_out, variance_templates_out
 
@@ -428,80 +360,50 @@ class TemplateFitter:
             print("Fitting template using", training_library, "with", amp.shape[0],
                   "total pixels")
 
-        if training_library == "kde":
-            from KDEpy import FFTKDE
-            from scipy.interpolate import LinearNDInterpolator
-
-            x, y = pixel_pos.T
-            amp_fit = np.concatenate((amp, amp))
-            amp_fit[amp_fit<1e-3] = 1e-3
-            amp_fit = np.log10(amp_fit)
-
-            y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
-            x_fit = np.concatenate((x, x))
-
-            scale = 1
-            data = np.vstack((x_fit, y_fit, amp_fit * scale))
-
-            bw = 0.02
-            kde = FFTKDE(bw=bw).fit(data.T)
-            
-            points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
-            #points, out = kde.evaluate(grid)
-            points_x, points_y, points_z = points.T
-            points_z = points_z * scale
-            print(points_x, points_y, points_z, np.min(amp))
-
-            av_z = np.average(points_z)
-            print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
-            weights = (out*points_z).reshape((self.bins[0], self.bins[1], 200))
-            average_value = np.sum(weights, axis=-1) / \
-                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
-            average_value = np.power(10, average_value)
-
-            squared_average_value = np.sum(weights**2, axis=-1) / \
-                np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+        # Create grid over which to evaluate our fit
+        x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+        y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+        xx, yy = np.meshgrid(x, y)
+        grid = np.vstack((xx.ravel(), yy.ravel()))
 
         pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
         pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
         amp = np.concatenate((amp, amp))
         x, y = pixel_pos.T
 
-        amp_fit = np.concatenate((amp, amp))
-        amp_fit = amp_fit + 1
-        amp_fit[amp_fit<1e-3] = 1e-3
-        amp_fit= np.log10(amp_fit)
-        
-        y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
-        x_fit = np.concatenate((x, x))
-        
-        scale = 1
-        data = np.vstack((x_fit, y_fit, amp_fit * scale))
-        
-        bw = 0.02
-        kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
-        z_bins = 400
-        points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
-        points_x, points_y, points_z = points.T
-        points_z = np.power(10,points_z * scale)
-        
-        av_z = np.average(points_z)
-        
-        weights = (out*points_z).reshape((self.bins[0], self.bins[1], 400))
-        average_value = np.sum(weights, axis=-1) / \
-                        np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
-        average_value = average_value - 1
-
-        squared_average_value = np.sum(weights**2, axis=-1) / \
-                                np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
-        
-        variance = squared_average_value - average_value**2
-        points_x = points_x.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
-        points_y = points_y.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
-            
-        lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
         if training_library == "kde":
-            return lin
+            from KDEpy import FFTKDE
+            from scipy.interpolate import LinearNDInterpolator
+
+            scale = 1
+            data = np.vstack((x, y, amp * scale))
+            
+            bw = 0.02
+            kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
+            z_bins = 400
+            points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
+            points_x, points_y, points_z = points.T
+            
+            av_z = np.average(points_z)
+            
+            weights = (out*points_z).reshape((self.bins[0], self.bins[1], 400))
+            average_value = np.sum(weights, axis=-1) / \
+                            np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
+            average_value = average_value - 1
+
+            squared_average_value = np.sum(weights**2, axis=-1) / \
+                                    np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
+            
+            variance = squared_average_value - average_value**2
+            points_x = points_x.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
+            points_y = points_y.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
+                
+            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
+
+            kde_pred = lin(grid.T)
+
+            return kde_pred.reshape((self.bins[1], self.bins[0]))
+
         elif training_library == "keras":
             from keras.models import Sequential
             from keras.layers import Dense
@@ -521,25 +423,18 @@ class TemplateFitter:
                                                      patience=20,
                                                      verbose=2, mode='auto')
             
-            pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
-        
-#            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
- #           amp = np.concatenate((amp, amp))
         
             model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
             model_pred = model.predict(grid.T)
-            kde_pred = lin(grid.T)
-            
-            sel = kde_pred>4
-            print(np.sum(kde_pred[sel])/np.sum(model_pred[sel]), np.min(pixel_pos.T[0]),  np.max(pixel_pos.T[0]), pixel_pos.shape)
+
+            # Set everything outside the range of our points to zero
             lin_range = LinearNDInterpolator(pixel_pos, amp, fill_value=0)
             lin_nan = lin_range(grid.T) == 0
             model_pred[lin_nan] = 0
-            kde_pred[lin_nan] = 0
-            print(np.sum(kde_pred[sel])/np.sum(model_pred[sel]), np.sum(lin_nan))
-            return model_pred.reshape((self.bins[1], self.bins[0])) * (np.sum(kde_pred[sel])/np.sum(model_pred[sel]))
+
+            return model_pred.reshape((self.bins[1], self.bins[0]))
 
     def extend_xmax_range(self, templates):
         """
