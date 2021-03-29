@@ -193,7 +193,7 @@ class TemplateFitter:
                     impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
                                      np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
                         to(u.m).value
-
+                    
                     # now rotate and translate our images such that they lie on top of one
                     # another
                     x, y = \
@@ -313,7 +313,7 @@ class TemplateFitter:
 
         first = True
         # Loop over all templates
-        for key in tqdm(list(amplitude.keys())):
+        for key in tqdm(list(amplitude.keys())[:10]):
             if self.verbose and first:
                 print("Energy", key[2], "TeV")
                 first = False
@@ -424,6 +424,9 @@ class TemplateFitter:
 
             x, y = pixel_pos.T
             amp_fit = np.concatenate((amp, amp))
+            amp_fit[amp_fit<1e-3] = 1e-3
+            amp_fit = np.log10(amp_fit)
+
             y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
             x_fit = np.concatenate((x, x))
 
@@ -432,15 +435,19 @@ class TemplateFitter:
 
             bw = 0.02
             kde = FFTKDE(bw=bw).fit(data.T)
+            
             points, out = kde.evaluate((self.bins[0], self.bins[1], 200))
+            #points, out = kde.evaluate(grid)
             points_x, points_y, points_z = points.T
             points_z = points_z * scale
+            print(points_x, points_y, points_z, np.min(amp))
 
             av_z = np.average(points_z)
             print(av_z, ((np.max(points_z)-np.min(points_z))/2.) + np.min(points_z))
             weights = (out*points_z).reshape((self.bins[0], self.bins[1], 200))
             average_value = np.sum(weights, axis=-1) / \
                 np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
+            average_value = np.power(10, average_value)
 
             squared_average_value = np.sum(weights**2, axis=-1) / \
                 np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
