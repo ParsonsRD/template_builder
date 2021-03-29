@@ -1,7 +1,3 @@
-
-
-
-
 """
 
 """
@@ -44,7 +40,7 @@ class TemplateFitter:
     def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(601, 301),
                  min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
                  maximum_offset=10*u.deg,
-                 verbose=False, rotation_angle=0 * u.deg, training_library="sklearn",
+                 verbose=False, rotation_angle=0 * u.deg, training_library="keras",
                  tailcuts=(7, 14), min_amp=30, amplitude_correction=False):
         """
 
@@ -74,6 +70,7 @@ class TemplateFitter:
 
         self.templates = dict()  # Pixel amplitude
         self.template_fit = dict()  # Pixel amplitude
+        self.template_fit_kde = dict()  # Pixel amplitude
 
         self.templates_xb = dict()  # Rotated X position
         self.templates_yb = dict()  # Rotated Y positions
@@ -162,10 +159,14 @@ class TemplateFitter:
                 # Loop over triggered telescopes
                 for tel_id in event.dl0.tels_with_data:
                    #  Get pixel signal
+                    dl1 =  event.dl1.tel[tel_id]
                     try:
+#                        print(event.r1.tel[tel_id].waveform.shape)
                         hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
                         pmt_signal = hg
-                        pmt_signal[pmt_signal>150] = lg[pmt_signal>150]
+#                        print(hg[pmt_signal>100],  lg[pmt_signal>100])
+                        pmt_signal[pmt_signal>100] = lg[pmt_signal>100]
+#                        print(dl1.image[pmt_signal>100], pmt_signal[pmt_signal>100])
                     except ValueError:
                         pmt_signal = np.sum(event.r1.tel[tel_id].waveform, axis=-1)[0]
 
@@ -215,11 +216,17 @@ class TemplateFitter:
                                           boundary_thresh=self.tailcuts[1],
                                           min_number_picture_neighbors=1)
                     amp_sum = np.sum(pmt_signal[mask510])
-
+                    x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
+                    y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
+                    
                     if fill_correction:
                         mask = np.logical_and(mask, mask510)
+                    
+                    mask = mask510
+                    for i in range(4):
+                        mask = dilate(geom, mask)
 
-                    if amp_sum < self.min_amp:
+                    if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < 2*u.deg:
                         continue
 
                     # Make sure everything is 32 bit
@@ -245,15 +252,20 @@ class TemplateFitter:
                         xb = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
                         yb = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
                         key = zen, az, energy.value, int(impact), x_diff_bin
-
+#                        print(key)
                         if key in self.template_fit.keys():
                             interp = RegularGridInterpolator((yb, xb), self.template_fit[key], bounds_error=False)
                             pred = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
+                            
+                            interp_kde = RegularGridInterpolator((yb, xb), self.template_fit_kde[key], bounds_error=False)
+                            pred_kde = interp(np.array([y.to(u.deg).value, x.to(u.deg).value]).T)
+
+                            print(np.sum(interp_kde), np.sum(pred_kde))
 
                             if key in self.correction.keys():
-                                self.correction[key] = np.append(self.correction[key], np.sum(image)/np.sum(pred))
+                                self.correction[key] = np.append(self.correction[key], np.sum(pred_kde)/np.sum(pred))
                             else:
-                                self.correction[key] = (np.sum(image)/np.sum(pred))
+                                self.correction[key] = (np.sum(pred_kde)/np.sum(pred))
                     else:
                         if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
                             # Extend the list if an entry already exists
@@ -332,11 +344,8 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            #training_library = "kde"
-            #if self.count[key] < 200:
-            #    training_library = "kde"
-
-            model = self.perform_fit(amp, pixel_pos, self.training_library, max_fitpoints)
+            training_library = self.training_library
+            model = self.perform_fit(amp, pixel_pos, training_library,max_fitpoints)
 
             if str(type(model)) == \
                     "<class 'scipy.interpolate.interpnd.LinearNDInterpolator'>":
@@ -352,10 +361,11 @@ class TemplateFitter:
                 nn_out = model
             else:
                 # Evaluate MLP fit over our grid
-                nn_out = model.predict(grid.T)
-                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+#                nn_out = model.predict(grid.T)
+#                nn_out = nn_out.reshape((self.bins[1], self.bins[0]))
+                nn_out = model
                 nn_out[np.isinf(nn_out)] = 0
-
+#            print("sc",scale)
             templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
                 nn_out.astype(np.float32)
             
@@ -452,49 +462,46 @@ class TemplateFitter:
             squared_average_value = np.sum(weights**2, axis=-1) / \
                 np.sum(out.reshape((self.bins[0], self.bins[1], 200)), axis=-1)
 
-            variance = squared_average_value - average_value**2
-            points_x = points_x.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
-            points_y = points_y.reshape((self.bins[0], self.bins[1], 200))[:, :, 0].ravel()
+        pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
+        pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+        amp = np.concatenate((amp, amp))
+        x, y = pixel_pos.T
 
-            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
+        amp_fit = np.concatenate((amp, amp))
+        amp_fit = amp_fit + 1
+        amp_fit[amp_fit<1e-3] = 1e-3
+        amp_fit= np.log10(amp_fit)
+        
+        y_fit = np.concatenate((np.abs(y), -1*np.abs(y)))
+        x_fit = np.concatenate((x, x))
+        
+        scale = 1
+        data = np.vstack((x_fit, y_fit, amp_fit * scale))
+        
+        bw = 0.02
+        kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
+        z_bins = 400
+        points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
+        points_x, points_y, points_z = points.T
+        points_z = np.power(10,points_z * scale)
+        
+        av_z = np.average(points_z)
+        
+        weights = (out*points_z).reshape((self.bins[0], self.bins[1], 400))
+        average_value = np.sum(weights, axis=-1) / \
+                        np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
+        average_value = average_value - 1
 
+        squared_average_value = np.sum(weights**2, axis=-1) / \
+                                np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
+        
+        variance = squared_average_value - average_value**2
+        points_x = points_x.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
+        points_y = points_y.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
+            
+        lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
+        if training_library == "kde":
             return lin
-
-        elif training_library == "KNN":
-            from sklearn.neighbors import KNeighborsRegressor, RadiusNeighborsRegressor
-            model = RadiusNeighborsRegressor(0.06)
-            model.fit(pixel_pos, amp)
-
-            x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
-            y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-            xx, yy = np.meshgrid(x, y)
-            print(xx.shape)
-            xx = xx.T.ravel()
-            yy = yy.T.ravel()
-            grid = np.vstack((xx, yy)).T
-
-            dist, ind = model.radius_neighbors(grid)
-
-            from sklearn.linear_model import LinearRegression         
-            from sklearn.pipeline import make_pipeline
-            from sklearn.preprocessing import PolynomialFeatures
-
-            #lin = LinearRegression()
-            polyreg = make_pipeline(
-                    PolynomialFeatures(degree=2),
-                    LinearRegression()
-                    )
-
-            output = np.zeros(len(ind))
-            for bin in range(len(ind)):
-                if len(ind[bin]) == 0:
-                    continue
-                polyreg.fit(pixel_pos[ind[bin]], amp[ind[bin]])
-                output[bin] = polyreg.predict([[xx[bin], yy[bin]]])[0]
-                
-            output = output.reshape(self.bins)
-            return output
-
         elif training_library == "keras":
             from keras.models import Sequential
             from keras.layers import Dense
@@ -507,23 +514,32 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            model.compile(loss='mean_absolute_error',
+            model.compile(loss='mean_squared_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
-                                                     patience=10,
+                                                     patience=20,
                                                      verbose=2, mode='auto')
             
             pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
         
-            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
-            amp = np.concatenate((amp, amp))
+#            pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
+ #           amp = np.concatenate((amp, amp))
         
             model.fit(pixel_pos, amp, epochs=10000,
-                      batch_size=100000,
+                      batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
-
-            return model
+            model_pred = model.predict(grid.T)
+            kde_pred = lin(grid.T)
+            
+            sel = kde_pred>4
+            print(np.sum(kde_pred[sel])/np.sum(model_pred[sel]), np.min(pixel_pos.T[0]),  np.max(pixel_pos.T[0]), pixel_pos.shape)
+            lin_range = LinearNDInterpolator(pixel_pos, amp, fill_value=0)
+            lin_nan = lin_range(grid.T) == 0
+            model_pred[lin_nan] = 0
+            kde_pred[lin_nan] = 0
+            print(np.sum(kde_pred[sel])/np.sum(model_pred[sel]), np.sum(lin_nan))
+            return model_pred.reshape((self.bins[1], self.bins[0])) * (np.sum(kde_pred[sel])/np.sum(model_pred[sel]))
 
     def extend_xmax_range(self, templates):
         """
@@ -696,7 +712,15 @@ class TemplateFitter:
             variance_templates.update(file_variance_templates)
 
         if self.amplitude_correction:
-            _ = self.read_templates(filename, max_events, fill_correction=True)
+            self.training_library = "kde"
+            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
+                                                                         pix_lists[1],
+                                                                         pix_lists[2],
+                                                                         make_variance,
+                                                                         max_fitpoints)
+            self.template_fit_kde = file_templates
+            for filename in file_list:
+                _ = self.read_templates(filename, max_events, fill_correction=True)
 
         pix_lists = None
         file_templates = None
