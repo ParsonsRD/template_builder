@@ -75,11 +75,13 @@ class TemplateFitter:
         self.templates_xb = dict()  # Rotated X position
         self.templates_yb = dict()  # Rotated Y positions
         self.correction = dict()
-        self.count = dict()
+
+        self.count = dict() # Count of events in a given template
+        self.count_total = 0 # Total number of events 
 
         self.amplitude_correction = amplitude_correction
 
-    def read_templates(self, filename, max_events=1e9, fill_correction=False):
+    def read_templates(self, filename, max_events=0, fill_correction=False):
         """
         This is a pretty standard ctapipe event loop that calibrates events, rotates
         them into a common frame and then stores the pixel values in a list
@@ -96,6 +98,10 @@ class TemplateFitter:
         """
 
         # Create dictionaries to contain our output
+        if max_events > 0:
+            print("Warning if limiting event numbers the zero fraction may no longer be correct")
+        else:
+            max_events = 1e10
 
         # Create a dummy time for our AltAz objects
         dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
@@ -107,6 +113,7 @@ class TemplateFitter:
 
         with event_source(input_url=filename.strip()) as source:
 
+            self.count_total += source.simulation_config.num_events
             grd_tel = None
             num = 0  # Event counter
 
