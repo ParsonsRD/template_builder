@@ -62,11 +62,11 @@ def test_template_fitting():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Read in the file
-    amp, raw_x, raw_y = fitter.read_templates(data_dir)
+    amp, raw_x, raw_y = fitter.read_templates(data_dir, min_fit_pixels=1000)
     test_template = (0., 0., 1., 0., 50.)
 
     # Then lets fit our example template using the different options
-    fit_options = ["keras", "sklearn", "KNN"]
+    fit_options = ["keras", "kde"]
 
     for option in fit_options:
         fitter.training_library = option
@@ -116,7 +116,7 @@ def test_full_fit():
     # Finally check everything
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=0, training_library="KNN")
+    fitter = TemplateFitter(min_fit_pixels=2000, training_library="kde")
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
@@ -124,7 +124,7 @@ def test_full_fit():
 
     # Run full template generation
     template, var_template = fitter.generate_templates([data_dir], "./test.template.gz",
-                                                       "./test_var.template.gz", True)
+                                                       "./test_var.template.gz", True, max_events=10)
 
     # Make sure we get something out
     assert template is not None
@@ -147,3 +147,4 @@ def test_full_fit():
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
 
+test_full_fit()
