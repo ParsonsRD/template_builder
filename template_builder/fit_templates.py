@@ -113,7 +113,9 @@ class TemplateFitter:
 
         with event_source(input_url=filename.strip()) as source:
 
+            print(source._simulation_config)
             self.count_total += source.simulation_config.num_events
+            
             grd_tel = None
             num = 0  # Event counter
 
@@ -655,4 +657,8 @@ class TemplateFitter:
             pickle.dump(variance_templates, file_handler)
             file_handler.close()
 
-        return templates, variance_templates
+        # Turn our counts into a fraction missed
+        for key in self.count.keys():
+            self.count[key] = 1 - (self.count[key]/self.count_total)
+
+        return templates, variance_templates, self.count

@@ -123,7 +123,7 @@ def test_full_fit():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Run full template generation
-    template, var_template = fitter.generate_templates([data_dir], "./test.template.gz",
+    template, var_template, missed_fraction = fitter.generate_templates([data_dir], "./test.template.gz",
                                                        "./test_var.template.gz", True, max_events=10)
 
     # Make sure we get something out
@@ -146,5 +146,7 @@ def test_full_fit():
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
+    print(missed_fraction)
+    
 
 test_full_fit()
