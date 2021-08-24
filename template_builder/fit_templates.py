@@ -7,41 +7,35 @@ import pickle
 import astropy.units as u
 import numpy as np
 
+from template_builder.utilities import *
+from template_builder.extend_templates import *
+
 from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame
 from astropy.coordinates import SkyCoord, AltAz
 from astropy.time import Time
 from ctapipe.io import EventSource
 from ctapipe.reco import ImPACTReconstructor
-from scipy.interpolate import interp1d
 from tqdm import tqdm
 from ctapipe.image import tailcuts_clean, dilate
 from ctapipe.calib import CameraCalibrator
 from ctapipe.image.extractor import FullWaveformSum, FixedWindowSum
 from ctapipe.calib.camera.gainselection import ThresholdGainSelector
 
-def find_nearest_bin(array, value):
-    """
-    Find nearest value in an array
-
-    :param array: ndarray
-        Array to search
-    :param value: float
-        Search value
-    :return: float
-        Nearest bin value
-    """
-    idx = (np.abs(array - value)).argmin()
-    return array[idx]
-
 
 class TemplateFitter:
 
-    def __init__(self, eff_fl=1, bounds=((-5, 1), (-1.5, 1.5)), bins=(601, 301),
-                 min_fit_pixels=3000, xmax_bins=np.linspace(-150, 200, 15),
+    def __init__(self, eff_fl=1, 
+                 bounds=((-5, 1), (-1.5, 1.5)), 
+                 bins=(601, 301),
+                 min_fit_pixels=3000, 
+                 xmax_bins=np.linspace(-150, 200, 15),
                  maximum_offset=10*u.deg,
-                 verbose=False, rotation_angle=0 * u.deg, training_library="keras",
-                 tailcuts=(7, 14), min_amp=30, amplitude_correction=False):
+                 verbose=False, 
+                 rotation_angle=0 * u.deg, 
+                 training_library="keras",
+                 tailcuts=(7, 14), min_amp=30, local_distance_cut=2.*u.deg,
+                 amplitude_correction=False):
         """
 
         :param eff_fl: float
@@ -67,6 +61,7 @@ class TemplateFitter:
         self.training_library = training_library
         self.tailcuts = tailcuts
         self.min_amp = min_amp
+        self.local_distance_cut = local_distance_cut
 
         self.templates = dict()  # Pixel amplitude
         self.template_fit = dict()  # Pixel amplitude
@@ -158,7 +153,6 @@ class TemplateFitter:
                 #  Get pixel signal
 
                 pmt_signal = dl1.image
-                print(tel_id,event.mon.tel[tel_id].calibration.dc_to_pe, tel_id,event.mon.tel[tel_id].calibration.pedestal_per_sample)
 
                 # Get pixel coordinates and convert to the nominal system
                 geom = source.subarray.tel[tel_id].camera.geometry
@@ -214,7 +208,8 @@ class TemplateFitter:
                 for i in range(4):
                     mask = dilate(geom, mask)
 
-                if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < 2*u.deg:
+                # Make our preselection cuts
+                if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < self.local_distance_cut:
                     continue
 
                 # Make sure everything is 32 bit
@@ -429,136 +424,6 @@ class TemplateFitter:
 
             return model_pred.reshape((self.bins[1], self.bins[0]))
 
-    def extend_xmax_range(self, templates):
-        """
-        Copy templates in empty xmax bins, helps to prevent problems from reaching the
-        edge of the interpolation space.
-
-        :param templates: dict
-            Image templates
-        :return: dict
-            Extended image templates
-        """
-
-        # Create dictionary for our new templates
-        extended_templates = dict()
-
-        # Loop over image templates
-        for key in templates:
-            min_key_bin = list()
-            key_copy = 0
-
-            # For each entry loop forward over possible xmax entries to check if they
-            # exist
-            for xb in self.xmax_bins:
-                key_test = (key[0], key[1], key[2], key[3], xb)
-                # keep looping until we have found the largest xmax value
-                if (key_test not in extended_templates.keys()) and \
-                        (key_test not in templates.keys()):
-                    min_key_bin.append(key_test)
-                else:
-                    key_copy = key_test
-                    break
-            # Then copy in the highest xmax valid template into these etries
-            for k in min_key_bin:
-                if key_copy != 0:
-                    extended_templates[k] = templates[key_copy]
-
-            min_key_bin = list()
-            key_copy = 0
-            # Now we just do the same in reverse
-            for xb in reversed(self.xmax_bins):
-                key_test = (key[0], key[1], key[2], key[3], xb)
-                if (key_test not in extended_templates.keys()) and \
-                        (key_test not in templates.keys()):
-                    min_key_bin.append(key_test)
-                else:
-                    key_copy = key_test
-                    break
-
-            for k in min_key_bin:
-                if key_copy != 0:
-                    extended_templates[k] = templates[key_copy]
-
-        # Copy new template entries into the original
-        templates.update(extended_templates)
-        return templates
-
-    def extend_distance_range(self, templates, additional_bins=4):
-        """
-        Copy templates in empty xmax bins, helps to prevent problems from reaching the
-        edge of the interpolation space.
-
-        :param templates: dict
-            Image templates
-        :return: dict
-            Extended image templates
-        """
-        keys = np.array(list(templates.keys()))
-        if len(list(templates.keys())) < 1:
-            return templates
-
-        distances = np.sort(np.unique(keys.T[3]))
-        energies = np.unique(keys.T[2])
-        zeniths = np.unique(keys.T[0])
-        azimuths = np.unique(keys.T[1])
-
-        extended_templates = dict()
-        for zen in zeniths:
-            for az in azimuths:
-                for en in energies:
-                    for xmax in self.xmax_bins:
-                        i = 0
-                        distance_list = list()
-
-                        # If we have no template at 0 copy the lowest value
-                        if distances[0] is not 0.:
-                            copied = False
-                            for d in distances:
-                                key = (zen, az, en, d, xmax)
-                                if key in templates.keys() and not copied:
-                                    extended_templates[(zen, az, en, 0, xmax)] = \
-                                        templates[key]
-                                    copied = True
-
-                        for dist in distances[0:]:
-                            key = (zen, az, en, dist, xmax)
-                            if key not in templates.keys():
-                                break
-                            else:
-                                distance_list.append(templates[key])
-                                i += 1
-
-                        num_dists = len(distance_list)
-                        if num_dists > 1 and num_dists < len(distances):
-                            distance_list = np.array(distance_list)
-
-                            diff = len(distances) - len(distance_list)
-
-                            if diff > additional_bins:
-                                diff = additional_bins
-                            for j in range(i, i + diff):
-                                interp = interp1d(distances[0:i], distance_list, axis=0,
-                                                  bounds_error=False,
-                                                  fill_value="extrapolate", kind="linear")
-
-                                int_val = interp(distances[j])
-                                int_val[int_val < 0] = 0
-                                key = (zen, az, en, distances[j], xmax)
-
-                                extended_templates[key] = int_val
-
-        templates.update(extended_templates)
-
-        return templates
-
-    def extend_template_coverage(self, templates):
-
-        templates = self.extend_xmax_range(templates)
-        templates = self.extend_distance_range(templates, 4)
-
-        return templates
-
     def generate_templates(self, file_list, output_file, variance_output_file=None,
                            extend_range=True, max_events=1e9, max_fitpoints=None):
         """
@@ -616,9 +481,9 @@ class TemplateFitter:
 
         # Extend coverage of the templates by extrapolation if requested
         if extend_range:
-            templates = self.extend_template_coverage(templates)
+            templates = extend_template_coverage(self.xmax_bins, templates)
             if make_variance:
-                variance_templates = self.extend_template_coverage(variance_templates)
+                variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
 
         if self.amplitude_correction:
 

@@ -1,7 +1,8 @@
 from template_builder.fit_templates import TemplateFitter, find_nearest_bin
 import numpy as np
 import pkg_resources
-
+from template_builder.utilities import *
+from template_builder.extend_templates import *
 
 # Make a simple test that our bin finder is working as we expect
 def test_bin_finder():
@@ -92,7 +93,7 @@ def test_template_fitting():
         # For now we will assume the fit just works
 
     # Finally we will check that the range extension functions work
-    extended_template = fitter.extend_xmax_range(template)
+    extended_template = extend_xmax_range(fitter.xmax_bins, template)
     xmax_range = np.array(list(extended_template.keys())).T[4]
 
     # Check the bins are right
@@ -107,7 +108,7 @@ def test_template_fitting():
     template[0., 0., 1., 100., 0.] = template[test_template]
     template[0., 0., 1., 200., 0.] = template[test_template]
 
-    extended_template = fitter.extend_distance_range(template)
+    extended_template = extend_distance_range(fitter.xmax_bins, template)
     assert (0., 0., 1., 100., 50.) in extended_template
     assert (0., 0., 1., 200., 50.) in extended_template
 
