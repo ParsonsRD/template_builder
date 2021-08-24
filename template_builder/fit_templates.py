@@ -79,7 +79,7 @@ class TemplateFitter:
 
         self.amplitude_correction = amplitude_correction
 
-    def read_templates(self, filename, max_events=1e9, fill_correction=False):
+    def read_templates(self, filename, max_events=1000000):
         """
         This is a pretty standard ctapipe event loop that calibrates events, rotates
         them into a common frame and then stores the pixel values in a list
@@ -104,6 +104,7 @@ class TemplateFitter:
             print("Reading", filename.strip())
 
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
+        source.gain_selector.threshold = 30000
         calib = CameraCalibrator(subarray=source.subarray, image_extractor=FixedWindowSum(source.subarray,
                                                                                           window_width=16, window_shift=3, peak_index=3,
                                                                                           apply_integration_correction=False))
@@ -127,7 +128,7 @@ class TemplateFitter:
             #print("here1", point.separation(src),  self.maximum_offset)
             if point.separation(src) > self.maximum_offset:
                 continue
-
+            
             # And transform into nominal system (where we store our templates)
             source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -156,15 +157,8 @@ class TemplateFitter:
             for tel_id, dl1 in event.dl1.tel.items():
                 #  Get pixel signal
 
-                #try:
-                #    hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
-                #    pmt_signal = hg
-                #    pmt_signal[pmt_signal>100] = lg[pmt_signal>100]
-#               #         print(dl1.image[pmt_signal>100], pmt_signal[pmt_signal>100])
-                #except ValueError:
-                #    pmt_signal = np.sum(event.r1.tel[tel_id].waveform, axis=-1)[0]
-
                 pmt_signal = dl1.image
+                print(tel_id,event.mon.tel[tel_id].calibration.dc_to_pe, tel_id,event.mon.tel[tel_id].calibration.pedestal_per_sample)
 
                 # Get pixel coordinates and convert to the nominal system
                 geom = source.subarray.tel[tel_id].camera.geometry
@@ -402,6 +396,8 @@ class TemplateFitter:
             return kde_pred.reshape((self.bins[1], self.bins[0]))
 
         elif training_library == "keras":
+            from scipy.interpolate import LinearNDInterpolator
+
             from keras.models import Sequential
             from keras.layers import Dense
             import keras
