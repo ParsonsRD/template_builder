@@ -11,14 +11,14 @@ from ctapipe.coordinates import CameraFrame, NominalFrame, GroundFrame, \
     TiltedGroundFrame
 from astropy.coordinates import SkyCoord, AltAz
 from astropy.time import Time
-from ctapipe.io.eventsource import event_source
+from ctapipe.io import EventSource
 from ctapipe.reco import ImPACTReconstructor
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 from ctapipe.image import tailcuts_clean, dilate
 from ctapipe.calib import CameraCalibrator
-from ctapipe.image.extractor import FullWaveformSum
-
+from ctapipe.image.extractor import FullWaveformSum, FixedWindowSum
+from ctapipe.calib.camera.gainselection import ThresholdGainSelector
 
 def find_nearest_bin(array, value):
     """
@@ -103,169 +103,166 @@ class TemplateFitter:
         if self.verbose:
             print("Reading", filename.strip())
 
-        calibrator = CameraCalibrator(image_extractor=FullWaveformSum())
+        source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
+        calib = CameraCalibrator(subarray=source.subarray, image_extractor=FixedWindowSum(source.subarray,
+                                                                                          window_width=16, window_shift=3, peak_index=3,
+                                                                                          apply_integration_correction=False))
 
-        with event_source(input_url=filename.strip()) as source:
+        grd_tel = None
+        num = 0  # Event counter
 
-            grd_tel = None
-            num = 0  # Event counter
+        for event in source:
+            calib(event)
 
-            for event in tqdm(source):
-                alt = event.mcheader.run_array_direction[1]
-                if alt > 90. * u.deg:
-                    alt = 90. * u.deg
-                point = SkyCoord(alt=alt, az=event.mcheader.run_array_direction[0],
-                                 frame=AltAz(obstime=dummy_time))
+            alt = event.pointing.array_altitude
+            if alt > 90 * u.deg:
+                alt = 90*u.deg
+            point = SkyCoord(alt=alt, az=event.pointing.array_azimuth,
+                            frame=AltAz(obstime=dummy_time))
 
-                mc = event.mc
-                # Create coordinate objects for source position
-                src = SkyCoord(alt=mc.alt.value * u.rad, az=mc.az.value * u.rad,
-                               frame=AltAz(obstime=dummy_time))
-                #print("here1", point.separation(src),  self.maximum_offset)
-                if point.separation(src) > self.maximum_offset:
+            # Create coordinate objects for source position
+            src = SkyCoord(alt=event.simulation.shower.alt.value * u.rad, 
+                           az=event.simulation.shower.az.value * u.rad,
+                           frame=AltAz(obstime=dummy_time))
+            #print("here1", point.separation(src),  self.maximum_offset)
+            if point.separation(src) > self.maximum_offset:
+                continue
+
+            # And transform into nominal system (where we store our templates)
+            source_direction = src.transform_to(NominalFrame(origin=point))
+
+            # Store simulated event energy
+            energy = event.simulation.shower.energy
+
+            # Store ground position of all telescopes
+            # We only want to do this once, but has to be done in event loop
+            if grd_tel is None:
+                grd_tel = source.subarray.tel_coords
+
+
+                # Convert to tilted system
+                tilt_tel = grd_tel.transform_to(
+                    TiltedGroundFrame(pointing_direction=point))
+
+            # Calculate core position in tilted system
+            grd_core_true = SkyCoord(x=np.asarray(event.simulation.shower.core_x) * u.m,
+                                        y=np.asarray(event.simulation.shower.core_y) * u.m,
+                                        z=np.asarray(0) * u.m, frame=GroundFrame())
+
+            tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
+                pointing_direction=point))
+
+            # Loop over triggered telescopes
+            for tel_id, dl1 in event.dl1.tel.items():
+                #  Get pixel signal
+
+                #try:
+                #    hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
+                #    pmt_signal = hg
+                #    pmt_signal[pmt_signal>100] = lg[pmt_signal>100]
+#               #         print(dl1.image[pmt_signal>100], pmt_signal[pmt_signal>100])
+                #except ValueError:
+                #    pmt_signal = np.sum(event.r1.tel[tel_id].waveform, axis=-1)[0]
+
+                pmt_signal = dl1.image
+
+                # Get pixel coordinates and convert to the nominal system
+                geom = source.subarray.tel[tel_id].camera.geometry
+                fl = source.subarray.tel[tel_id].optics.equivalent_focal_length * \
+                        self.eff_fl
+
+                camera_coord = SkyCoord(x=geom.pix_x, y=geom.pix_y,
+                                        frame=CameraFrame(focal_length=fl,
+                                                            telescope_pointing=point))
+
+                nom_coord = camera_coord.transform_to(
+                    NominalFrame(origin=point))
+
+                y = nom_coord.fov_lon.to(u.deg)
+                x = nom_coord.fov_lat.to(u.deg)
+
+                # Calculate expected rotation angle of the image
+                phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
+                                    (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
+                        180 * u.deg
+                phi += self.rotation_angle
+                # And the impact distance of the shower
+                impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
+                                    np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
+                    to(u.m).value
+                
+                # now rotate and translate our images such that they lie on top of one
+                # another
+                x, y = \
+                    ImPACTReconstructor.rotate_translate(x, y,
+                                                            source_direction.fov_lon,
+                                                            source_direction.fov_lat,
+                                                            phi)
+                x *= -1
+
+                # We only want to keep pixels that fall within the bounds of our
+                # final template
+                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                                        x < self.bounds[0][1] * u.deg)
+                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+
+                mask510 = tailcuts_clean(geom, pmt_signal,
+                                        picture_thresh=self.tailcuts[0],
+                                        boundary_thresh=self.tailcuts[1],
+                                        min_number_picture_neighbors=1)
+
+                amp_sum = np.sum(pmt_signal[mask510])
+                x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
+                y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
+                
+                mask = mask510
+                for i in range(4):
+                    mask = dilate(geom, mask)
+
+                if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < 2*u.deg:
                     continue
 
-                # And transform into nominal system (where we store our templates)
-                source_direction = src.transform_to(NominalFrame(origin=point))
+                # Make sure everything is 32 bit
+                x = x[mask].astype(np.float32)
+                y = y[mask].astype(np.float32)
+                image = pmt_signal[mask].astype(np.float32)
 
-                # Perform calibration of images
-                try:
-                    calibrator(event)
-                except ZeroDivisionError:
-                    print("ZeroDivisionError in calibrator, skipping this event")
-                    continue
+                zen = 90 - alt.to(u.deg).value
+                # Store simulated Xmax
+                mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
-                # Store simulated event energy
-                energy = mc.energy
+                # Calc difference from expected Xmax (for gammas)
+                exp_xmax = 300 + 93 * np.log10(energy.value)
+                x_diff = mc_xmax - exp_xmax
 
-                # Store ground position of all telescopes
-                # We only want to do this once, but has to be done in event loop
-                if grd_tel is None:
-                    grd_tel = event.inst.subarray.tel_coords
+                x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
+                az = point.az.to(u.deg).value
+                zen = 90. - point.alt.to(u.deg).value
 
+                # Now fill up our output with the X, Y and amplitude of our pixels
+                if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
+                    # Extend the list if an entry already exists
+                    self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                        extend(image)
+                    self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                        extend(x.to(u.deg).value)
+                    self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
+                        extend(y.to(u.deg).value)
+                    self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
+                else:
+                    self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                        image.tolist()
+                    self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                        x.value.tolist()
+                    self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
+                        y.value.tolist()
+                    self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
 
-                    # Convert to tilted system
-                    tilt_tel = grd_tel.transform_to(
-                        TiltedGroundFrame(pointing_direction=point))
+            if num > max_events:
+                return self.templates, self.templates_xb, self.templates_yb
 
-                # Calculate core position in tilted system
-                grd_core_true = SkyCoord(x=np.asarray(mc.core_x) * u.m,
-                                         y=np.asarray(mc.core_y) * u.m,
-                                         z=np.asarray(0) * u.m, frame=GroundFrame())
-
-                tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
-                    pointing_direction=point))
-
-                # Loop over triggered telescopes
-                for tel_id in event.dl0.tels_with_data:
-                   #  Get pixel signal
-                    dl1 =  event.dl1.tel[tel_id]
-                    try:
-#                        print(event.r1.tel[tel_id].waveform.shape)
-                        hg, lg =np.sum(event.r1.tel[tel_id].waveform, axis=2)
-                        pmt_signal = hg
-#                        print(hg[pmt_signal>100],  lg[pmt_signal>100])
-                        pmt_signal[pmt_signal>100] = lg[pmt_signal>100]
-#                        print(dl1.image[pmt_signal>100], pmt_signal[pmt_signal>100])
-                    except ValueError:
-                        pmt_signal = np.sum(event.r1.tel[tel_id].waveform, axis=-1)[0]
-
-                    # Get pixel coordinates and convert to the nominal system
-                    geom = event.inst.subarray.tel[tel_id].camera
-                    fl = event.inst.subarray.tel[tel_id].optics.equivalent_focal_length * \
-                         self.eff_fl
-
-                    camera_coord = SkyCoord(x=geom.pix_x, y=geom.pix_y,
-                                            frame=CameraFrame(focal_length=fl,
-                                                              telescope_pointing=point))
-
-                    nom_coord = camera_coord.transform_to(
-                        NominalFrame(origin=point))
-
-                    y = nom_coord.delta_az.to(u.deg)
-                    x = nom_coord.delta_alt.to(u.deg)
-
-                    # Calculate expected rotation angle of the image
-                    phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
-                                     (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
-                          180 * u.deg
-                    phi += self.rotation_angle
-                    # And the impact distance of the shower
-                    impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
-                                     np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
-                        to(u.m).value
-                    
-                    # now rotate and translate our images such that they lie on top of one
-                    # another
-                    x, y = \
-                        ImPACTReconstructor.rotate_translate(x, y,
-                                                             source_direction.delta_alt,
-                                                             source_direction.delta_az,
-                                                             phi)
-                    x *= -1
-
-                    # We only want to keep pixels that fall within the bounds of our
-                    # final template
-                    mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                                          x < self.bounds[0][1] * u.deg)
-                    mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                    mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
-
-                    mask510 = tailcuts_clean(geom, pmt_signal,
-                                          picture_thresh=self.tailcuts[0],
-                                          boundary_thresh=self.tailcuts[1],
-                                          min_number_picture_neighbors=1)
-                    amp_sum = np.sum(pmt_signal[mask510])
-                    x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
-                    y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
-                    
-                    mask = mask510
-                    for i in range(4):
-                        mask = dilate(geom, mask)
-
-                    if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < 2*u.deg:
-                        continue
-
-                    # Make sure everything is 32 bit
-                    x = x[mask].astype(np.float32)
-                    y = y[mask].astype(np.float32)
-                    image = pmt_signal[mask].astype(np.float32)
-
-                    zen = 90 - mc.alt.to(u.deg).value
-                    # Store simulated Xmax
-                    mc_xmax = event.mc.x_max.value / np.cos(np.deg2rad(zen))
-
-                    # Calc difference from expected Xmax (for gammas)
-                    exp_xmax = 300 + 93 * np.log10(energy.value)
-                    x_diff = mc_xmax - exp_xmax
-
-                    x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-                    az = point.az.to(u.deg).value
-                    zen = 90. - point.alt.to(u.deg).value
-
-                    # Now fill up our output with the X, Y and amplitude of our pixels
-                    if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
-                        # Extend the list if an entry already exists
-                        self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(image)
-                        self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(x.to(u.deg).value)
-                        self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                            extend(y.to(u.deg).value)
-                        self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
-                    else:
-                        self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            image.tolist()
-                        self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            x.value.tolist()
-                        self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                            y.value.tolist()
-                        self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
-
-                if num > max_events:
-                    return self.templates, self.templates_xb, self.templates_yb
-
-                num += 1
+            num += 1
 
         return self.templates, self.templates_xb, self.templates_yb
 
