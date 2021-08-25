@@ -476,69 +476,74 @@ class TemplateFitter:
         # Read in the files listed consecutively 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
-        
-        # Fit them using the method requested
-        file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                     pix_lists[1],
-                                                                     pix_lists[2],
-                                                                     make_variance,
-                                                                     max_fitpoints)
-        templates.update(file_templates)
-        self.template_fit = templates
-
-        if make_variance:
-            variance_templates.update(file_variance_templates)
-
-        # Correct the amplitude by the normalisation from KDE fitting if requested 
-        # re-run the template reading, predict the image and take the ratio to the
-        # real image
-        if self.amplitude_correction:
-            self.training_library = "kde"
+        if output_file is not None:
+            # Fit them using the method requested
             file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                         pix_lists[1],
-                                                                         pix_lists[2],
-                                                                         make_variance,
-                                                                         max_fitpoints)
-            self.template_fit_kde = file_templates
-            for filename in file_list:
-                _ = self.read_templates(filename, max_events, fill_correction=True)
+                                                                        pix_lists[1],
+                                                                        pix_lists[2],
+                                                                        make_variance,
+                                                                        max_fitpoints)
+            templates.update(file_templates)
+            self.template_fit = templates
 
-        pix_lists = None
-        file_templates = None
-        file_variance_templates = None
-
-        # Extend coverage of the templates by extrapolation if requested
-        if extend_range:
-            templates = extend_template_coverage(self.xmax_bins, templates)
             if make_variance:
-                variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
+                variance_templates.update(file_variance_templates)
 
-        # Perform correction on the templates
-        if self.amplitude_correction:
+            # Correct the amplitude by the normalisation from KDE fitting if requested 
+            # re-run the template reading, predict the image and take the ratio to the
+            # real image
+            if self.amplitude_correction:
+                self.training_library = "kde"
+                file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
+                                                                            pix_lists[1],
+                                                                            pix_lists[2],
+                                                                            make_variance,
+                                                                            max_fitpoints)
+                self.template_fit_kde = file_templates
+                for filename in file_list:
+                    _ = self.read_templates(filename, max_events, fill_correction=True)
 
-            for key in self.correction.keys():
-                correction_factor = np.median(self.correction[key])
-                correction_factor_error = np.std(self.correction[key]) / np.sqrt(float(len(self.correction[key])))
+            pix_lists = None
+            file_templates = None
+            file_variance_templates = None
 
-                print(correction_factor_error / correction_factor, correction_factor)
-                if correction_factor > 0 and correction_factor_error / correction_factor < 0.1:
-                    self.template_fit[key] = self.template_fit[key] * np.median(self.correction[key])
-                else:
-                    self.template_fit.pop(key)
+            # Extend coverage of the templates by extrapolation if requested
+            if extend_range:
+                templates = extend_template_coverage(self.xmax_bins, templates)
+                if make_variance:
+                    variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
 
-        # Finally write everything out to a gzipped pickle file
-        file_handler = gzip.open(output_file, "wb")
-        pickle.dump(self.template_fit, file_handler)
-        file_handler.close()
+            # Perform correction on the templates
+            if self.amplitude_correction:
 
-        # And variance templates if needed
-        if make_variance:
-            file_handler = gzip.open(variance_output_file, "wb")
-            pickle.dump(variance_templates, file_handler)
+                for key in self.correction.keys():
+                    correction_factor = np.median(self.correction[key])
+                    correction_factor_error = np.std(self.correction[key]) / np.sqrt(float(len(self.correction[key])))
+
+                    print(correction_factor_error / correction_factor, correction_factor)
+                    if correction_factor > 0 and correction_factor_error / correction_factor < 0.1:
+                        self.template_fit[key] = self.template_fit[key] * np.median(self.correction[key])
+                    else:
+                        self.template_fit.pop(key)
+
+            # Finally write everything out to a gzipped pickle file
+            file_handler = gzip.open(output_file, "wb")
+            pickle.dump(self.template_fit, file_handler)
             file_handler.close()
 
-        # Turn our counts into a fraction missed
-        for key in self.count.keys():
-            self.count[key] = 1 - (self.count[key]/self.count_total)
+            # And variance templates if needed
+            if make_variance:
+                file_handler = gzip.open(variance_output_file, "wb")
+                pickle.dump(variance_templates, file_handler)
+                file_handler.close()
 
+        if fraction_output_file is not None:
+            # Turn our counts into a fraction missed
+            for key in self.count.keys():
+                self.count[key] = 1 - (self.count[key]/self.count_total)
+
+            file_handler = gzip.open(fraction_output_file, "wb")
+            pickle.dump(self.count, file_handler)
+            file_handler.close()
+            
         return templates, variance_templates, self.count
