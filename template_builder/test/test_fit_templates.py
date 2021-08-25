@@ -133,7 +133,7 @@ def test_full_fit():
 
     # Run full template generation
     template, var_template, missed_fraction = fitter.generate_templates([data_dir], "./test.template.gz",
-                                                       "./test_var.template.gz", True, max_events=10)
+                                                       "./test_var.template.gz", "./test_fraction.template.gz", True, max_events=10)
 
     # Make sure we get something out
     assert template is not None
@@ -142,21 +142,24 @@ def test_full_fit():
     import os.path
     os.path.isfile("./test.template.gz")
     os.path.isfile("./test_var.template.gz")
+    os.path.isfile("./test_fraction.template.gz")
 
     # Open our output files
     import pickle, gzip
     template_fromfile = pickle.load(gzip.open("./test.template.gz","r"))
     var_template_fromfile = pickle.load(gzip.open("./test_var.template.gz","r"))
+    fraction_fromfile = pickle.load(gzip.open("./test_fraction.template.gz","r"))
 
     import matplotlib.pyplot as plt
     # And check the contents are the same
     for key in template:
         assert template[key].all() == template_fromfile[key].all()
         #assert var_template[key].all() == var_template_fromfile[key].all()
+        assert missed_fraction[key] == fraction_fromfile[key]
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
     
 #test_angular_scaling()
 #test_template_fitting()
-#test_full_fit()
+test_full_fit()

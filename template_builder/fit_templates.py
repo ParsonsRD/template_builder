@@ -540,10 +540,13 @@ class TemplateFitter:
         if fraction_output_file is not None:
             # Turn our counts into a fraction missed
             for key in self.count.keys():
-                self.count[key] = 1 - (self.count[key]/self.count_total)
+                self.count[key] = (self.count[key]/self.count_total)
+
+            if extend_range:
+                self.count = extend_template_coverage(self.xmax_bins, self.count)
 
             file_handler = gzip.open(fraction_output_file, "wb")
             pickle.dump(self.count, file_handler)
             file_handler.close()
-            
+
         return templates, variance_templates, self.count

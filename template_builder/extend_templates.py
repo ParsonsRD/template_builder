@@ -77,7 +77,7 @@ def extend_distance_range(xmax_bins, templates, additional_bins=4):
     zeniths = np.unique(keys.T[0])
     azimuths = np.unique(keys.T[1])
     offsets = np.unique(keys.T[5])
-
+    
     extended_templates = dict()
     for zen in zeniths:
         for az in azimuths:
