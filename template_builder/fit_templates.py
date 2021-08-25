@@ -78,7 +78,11 @@ class TemplateFitter:
         self.templates_xb = dict()  # Rotated X position
         self.templates_yb = dict()  # Rotated Y positions
         self.correction = dict()
-        self.count = dict()
+
+        self.count = dict() # Count of events in a given template
+        self.count_total = 0 # Total number of events 
+
+        self.amplitude_correction = amplitude_correction
         self.gain_threshold = gain_threshold
 
         self.amplitude_correction = amplitude_correction
@@ -100,6 +104,10 @@ class TemplateFitter:
         """
 
         # Create dictionaries to contain our output
+        if max_events > 0:
+            print("Warning if limiting event numbers the zero fraction may no longer be correct")
+        else:
+            max_events = 1e10
 
         # Create a dummy time for our AltAz objects
         dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
@@ -115,6 +123,7 @@ class TemplateFitter:
                                                                                           window_width=16, window_shift=3, peak_index=3,
                                                                                           apply_integration_correction=False))
 
+        self.count_total += source.simulation_config.num_showers
         grd_tel = None
         num = 0  # Event counter
 
@@ -531,4 +540,8 @@ class TemplateFitter:
             pickle.dump(variance_templates, file_handler)
             file_handler.close()
 
-        return templates, variance_templates
+        # Turn our counts into a fraction missed
+        for key in self.count.keys():
+            self.count[key] = 1 - (self.count[key]/self.count_total)
+
+        return templates, variance_templates, self.count

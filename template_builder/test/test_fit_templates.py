@@ -72,7 +72,7 @@ def test_template_fitting():
     for option in fit_options:
         fitter.training_library = option
 
-        template, var_template = fitter.fit_templates(
+        template, var_template, missed_fraction = fitter.fit_templates(
             {test_template: amp[test_template]},
             {test_template: raw_x[test_template]},
             {test_template: raw_y[test_template]}, True, 1000)
@@ -124,7 +124,7 @@ def test_full_fit():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Run full template generation
-    template, var_template = fitter.generate_templates([data_dir], "./test.template.gz",
+    template, var_template, missed_fraction = fitter.generate_templates([data_dir], "./test.template.gz",
                                                        "./test_var.template.gz", True, max_events=10)
 
     # Make sure we get something out
@@ -148,6 +148,7 @@ def test_full_fit():
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
+    
 
 #test_template_fitting()
 test_full_fit()
