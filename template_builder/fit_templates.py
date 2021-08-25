@@ -352,26 +352,30 @@ class TemplateFitter:
         xx, yy = np.meshgrid(x, y)
         grid = np.vstack((xx.ravel(), yy.ravel()))
 
+        # We expect our images to be symmetric around x=0, so we can duplicate and copy
+        # across the values 
         pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
         pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
         amp = np.concatenate((amp, amp))
         x, y = pixel_pos.T
 
+        # Fit using kernal density estimates
         if training_library == "kde":
+            # We use this fast KDE library rather than the scikit learn or scipy implmentation
             from KDEpy import FFTKDE
             from scipy.interpolate import LinearNDInterpolator
 
-            scale = 1
-            data = np.vstack((x, y, amp * scale))
-            
+            data = np.vstack((x, y, amp))
+
+            # This bandwidth is a reasonable guess
             bw = 0.02
             kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
+            # Estimate pdf on a 3D grid
             z_bins = 400
             points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
             points_x, points_y, points_z = points.T
             
-            av_z = np.average(points_z)
-            
+            # Then calculate average value on the amplitude axis
             weights = (out*points_z).reshape((self.bins[0], self.bins[1], 400))
             average_value = np.sum(weights, axis=-1) / \
                             np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
@@ -380,17 +384,17 @@ class TemplateFitter:
             squared_average_value = np.sum(weights**2, axis=-1) / \
                                     np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
             
-            variance = squared_average_value - average_value**2
             points_x = points_x.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
             points_y = points_y.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
-                
-            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
 
+            # Then interpolate on our evaluated grid points to give the template                
+            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
             kde_pred = lin(grid.T)
 
             return kde_pred.reshape((self.bins[1], self.bins[0]))
 
         elif training_library == "keras":
+            # Fit image pixels using a multi layer perceptron
             from scipy.interpolate import LinearNDInterpolator
 
             from keras.models import Sequential
@@ -399,11 +403,12 @@ class TemplateFitter:
             
             model = Sequential()
             model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
-
+            # We make a very deep network
             for n in nodes[1:]:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
+            # Still not sure MSE is the correct loss, but seems to work
             model.compile(loss='mean_squared_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
@@ -418,6 +423,7 @@ class TemplateFitter:
             model_pred = model.predict(grid.T)
 
             # Set everything outside the range of our points to zero
+            # This is a bit of a hacky way of doing this, but is fast and works
             lin_range = LinearNDInterpolator(pixel_pos, amp, fill_value=0)
             lin_nan = lin_range(grid.T) == 0
             model_pred[lin_nan] = 0
@@ -450,9 +456,11 @@ class TemplateFitter:
         templates = dict()
         variance_templates = dict()
 
+        # Read in the files listed consecutively 
         for filename in file_list:
             pix_lists = self.read_templates(filename, max_events)
         
+        # Fit them using the method requested
         file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
                                                                      pix_lists[1],
                                                                      pix_lists[2],
@@ -464,6 +472,9 @@ class TemplateFitter:
         if make_variance:
             variance_templates.update(file_variance_templates)
 
+        # Correct the amplitude by the normalisation from KDE fitting if requested 
+        # re-run the template reading, predict the image and take the ratio to the
+        # real image
         if self.amplitude_correction:
             self.training_library = "kde"
             file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
@@ -485,6 +496,7 @@ class TemplateFitter:
             if make_variance:
                 variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
 
+        # Perform correction on the templates
         if self.amplitude_correction:
 
             for key in self.correction.keys():
@@ -497,10 +509,12 @@ class TemplateFitter:
                 else:
                     self.template_fit.pop(key)
 
+        # Finally write everything out to a gzipped pickle file
         file_handler = gzip.open(output_file, "wb")
         pickle.dump(self.template_fit, file_handler)
         file_handler.close()
 
+        # And variance templates if needed
         if make_variance:
             file_handler = gzip.open(variance_output_file, "wb")
             pickle.dump(variance_templates, file_handler)
