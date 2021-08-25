@@ -177,13 +177,13 @@ class TemplateFitter:
                 nom_coord = camera_coord.transform_to(
                     NominalFrame(origin=point))
 
-                y = nom_coord.fov_lon.to(u.deg)
-                x = nom_coord.fov_lat.to(u.deg)
+                x = nom_coord.fov_lon.to(u.deg)
+                y = nom_coord.fov_lat.to(u.deg)
 
                 # Calculate expected rotation angle of the image
                 phi = np.arctan2((tilt_tel.y[tel_id - 1] - tilt_core_true.y),
                                     (tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
-                        180 * u.deg
+                        90 * u.deg
                 phi += self.rotation_angle
                 # And the impact distance of the shower
                 impact = np.sqrt(np.power(tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
