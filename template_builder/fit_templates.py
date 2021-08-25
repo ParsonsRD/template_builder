@@ -35,17 +35,25 @@ class TemplateFitter:
                  rotation_angle=0 * u.deg, 
                  training_library="keras",
                  tailcuts=(7, 14), min_amp=30, local_distance_cut=2.*u.deg,
+                 gain_threshold=30000,
                  amplitude_correction=False):
-        """
+        """[summary]
 
-        :param eff_fl: float
-            Effective focal length scaling of the telescope (to account for distortions)
-        :param bounds: tuple
-            Boundaries of resultant templates
-        :param bins: tuple
-            Number of bins in x and y dimensions of template
-        :param min_fit_pixels: int
-            Minimum number of pixels required in event to perform fit
+        Args:
+            eff_fl (int, optional): [description]. Defaults to 1.
+            bounds (tuple, optional): [description]. Defaults to ((-5, 1), (-1.5, 1.5)).
+            bins (tuple, optional): [description]. Defaults to (601, 301).
+            min_fit_pixels (int, optional): [description]. Defaults to 3000.
+            xmax_bins ([type], optional): [description]. Defaults to np.linspace(-150, 200, 15).
+            maximum_offset ([type], optional): [description]. Defaults to 10*u.deg.
+            verbose (bool, optional): [description]. Defaults to False.
+            rotation_angle ([type], optional): [description]. Defaults to 0*u.deg.
+            training_library (str, optional): [description]. Defaults to "keras".
+            tailcuts (tuple, optional): [description]. Defaults to (7, 14).
+            min_amp (int, optional): [description]. Defaults to 30.
+            local_distance_cut ([type], optional): [description]. Defaults to 2.*u.deg.
+            gain_threshold (int, optional): [description]. Defaults to 30000.
+            amplitude_correction (bool, optional): [description]. Defaults to False.
         """
 
         self.verbose = verbose
@@ -71,6 +79,7 @@ class TemplateFitter:
         self.templates_yb = dict()  # Rotated Y positions
         self.correction = dict()
         self.count = dict()
+        self.gain_threshold = gain_threshold
 
         self.amplitude_correction = amplitude_correction
 
@@ -99,7 +108,9 @@ class TemplateFitter:
             print("Reading", filename.strip())
 
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
-        source.gain_selector.threshold = 30000
+        source.gain_selector.threshold = self.gain_threshold # Set our threshodl for gain selection
+
+        # This value is currently set for HESS, need to make this more flexible in future
         calib = CameraCalibrator(subarray=source.subarray, image_extractor=FixedWindowSum(source.subarray,
                                                                                           window_width=16, window_shift=3, peak_index=3,
                                                                                           apply_integration_correction=False))
