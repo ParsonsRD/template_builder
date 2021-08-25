@@ -13,5 +13,6 @@ def find_nearest_bin(array, value):
     :return: float
         Nearest bin value
     """
+
     idx = (np.abs(array - value)).argmin()
     return array[idx]

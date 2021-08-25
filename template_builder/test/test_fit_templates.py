@@ -46,7 +46,7 @@ def test_template_read():
 
     # Can't be sure of the exact template content, but at least check the values make
     # sense
-    test_template = (0., 0., 1., 0., 50.)
+    test_template = (0., 0., 1., 0., 50., 0.)
     assert np.max(amp[test_template]) > 100.  # Max amplitude is reasonable
     # Average y value is about 0.
     assert np.average(raw_y[test_template], weights=amp[test_template]) < 0.05
@@ -64,7 +64,7 @@ def test_template_fitting():
 
     # Read in the file
     amp, raw_x, raw_y = fitter.read_templates(data_dir)
-    test_template = (0., 0., 1., 0., 50.)
+    test_template = (0., 0., 1., 0., 50., 0.)
 
     # Then lets fit our example template using the different options
     fit_options = ["keras", "kde"]
@@ -72,7 +72,7 @@ def test_template_fitting():
     for option in fit_options:
         fitter.training_library = option
 
-        template, var_template, missed_fraction = fitter.fit_templates(
+        template, var_template = fitter.fit_templates(
             {test_template: amp[test_template]},
             {test_template: raw_x[test_template]},
             {test_template: raw_y[test_template]}, True, 1000)
@@ -104,20 +104,20 @@ def test_template_fitting():
 
     template = {test_template: template[test_template]}
     # Finally check the distance extension works
-    template[0., 0., 1., 50., 50.] = template[test_template]
-    template[0., 0., 1., 100., 0.] = template[test_template]
-    template[0., 0., 1., 200., 0.] = template[test_template]
+    template[0., 0., 1., 50., 50., 0.] = template[test_template]
+    template[0., 0., 1., 100., 0., 0.] = template[test_template]
+    template[0., 0., 1., 200., 0., 0.] = template[test_template]
 
     extended_template = extend_distance_range(fitter.xmax_bins, template)
-    assert (0., 0., 1., 100., 50.) in extended_template
-    assert (0., 0., 1., 200., 50.) in extended_template
+    assert (0., 0., 1., 100., 50., 0.) in extended_template
+    assert (0., 0., 1., 200., 50., 0.) in extended_template
 
 
 def test_full_fit():
     # Finally check everything
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=100, training_library="keras")
+    fitter = TemplateFitter(min_fit_pixels=100, training_library="keras", verbose=True)
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there

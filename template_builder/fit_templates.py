@@ -29,8 +29,8 @@ class TemplateFitter:
                  bounds=((-5, 1), (-1.5, 1.5)), 
                  bins=(601, 301),
                  min_fit_pixels=3000, 
-                 xmax_bins=np.linspace(-150, 200, 15),
-                 maximum_offset=10*u.deg,
+                 xmax_bins=np.linspace(-150, 200, 15),  
+                 offset_bins=np.array([0.0])*u.deg,
                  verbose=False, 
                  rotation_angle=0 * u.deg, 
                  training_library="keras",
@@ -65,7 +65,7 @@ class TemplateFitter:
         self.min_fit_pixels = min_fit_pixels
 
         self.rotation_angle = rotation_angle
-        self.maximum_offset = maximum_offset
+        self.offset_bins = offset_bins
         self.training_library = training_library
         self.tailcuts = tailcuts
         self.min_amp = min_amp
@@ -141,9 +141,10 @@ class TemplateFitter:
                            az=event.simulation.shower.az.value * u.rad,
                            frame=AltAz(obstime=dummy_time))
             #print("here1", point.separation(src),  self.maximum_offset)
-            if point.separation(src) > self.maximum_offset:
-                continue
-            
+            #if point.separation(src) > self.maximum_offset:
+            #    continue
+            offset_bin = find_nearest_bin(self.offset_bins, point.separation(src)).value
+
             # And transform into nominal system (where we store our templates)
             source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -250,23 +251,19 @@ class TemplateFitter:
                 zen = 90. - point.alt.to(u.deg).value
 
                 # Now fill up our output with the X, Y and amplitude of our pixels
-                if (zen, az, energy.value, int(impact), x_diff_bin) in self.templates.keys():
+                key = zen, az, energy.value, int(impact), x_diff_bin, offset_bin
+
+                if (key) in self.templates.keys():
                     # Extend the list if an entry already exists
-                    self.templates[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                        extend(image)
-                    self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                        extend(x.to(u.deg).value)
-                    self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)].\
-                        extend(y.to(u.deg).value)
-                    self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = self.count[(zen, az, energy.value, int(impact), x_diff_bin)] + 1
+                    self.templates[key].extend(image)
+                    self.templates_xb[key].extend(x.to(u.deg).value)
+                    self.templates_yb[key].extend(y.to(u.deg).value)
+                    self.count[key] = self.count[key] + 1
                 else:
-                    self.templates[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        image.tolist()
-                    self.templates_xb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        x.value.tolist()
-                    self.templates_yb[(zen, az, energy.value, int(impact), x_diff_bin)] = \
-                        y.value.tolist()
-                    self.count[(zen, az, energy.value, int(impact), x_diff_bin)] = 1
+                    self.templates[key] = image.tolist()
+                    self.templates_xb[key] = x.value.tolist()
+                    self.templates_yb[key] = y.value.tolist()
+                    self.count[key] = 1
 
             if num > max_events:
                 return self.templates, self.templates_xb, self.templates_yb
@@ -328,9 +325,7 @@ class TemplateFitter:
 
             # Fit with MLP
             template_output = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
-
-            templates_out[(key[0], key[1], key[2], key[3], key[4])] = \
-                template_output.astype(np.float32)
+            templates_out[key] = template_output.astype(np.float32)
             
             #if make_variance_template:
                 # need better plan for var templates
@@ -450,7 +445,7 @@ class TemplateFitter:
 
             return model_pred.reshape((self.bins[1], self.bins[0]))
 
-    def generate_templates(self, file_list, output_file, variance_output_file=None,
+    def generate_templates(self, file_list, output_file=None, variance_output_file=None, fraction_output_file=None,
                            extend_range=True, max_events=1e9, max_fitpoints=None):
         """
 
