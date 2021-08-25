@@ -65,7 +65,7 @@ class TemplateFitter:
         self.min_fit_pixels = min_fit_pixels
 
         self.rotation_angle = rotation_angle
-        self.offset_bins = offset_bins
+        self.offset_bins = np.sort(offset_bins)
         self.training_library = training_library
         self.tailcuts = tailcuts
         self.min_amp = min_amp
@@ -116,6 +116,8 @@ class TemplateFitter:
             print("Reading", filename.strip())
 
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
+        offset_area_scale = create_angular_area_scaling(self.offset_bins, source.simulation_config.max_viewcone_radius)
+
         source.gain_selector.threshold = self.gain_threshold # Set our threshodl for gain selection
 
         # This value is currently set for HESS, need to make this more flexible in future
@@ -258,12 +260,12 @@ class TemplateFitter:
                     self.templates[key].extend(image)
                     self.templates_xb[key].extend(x.to(u.deg).value)
                     self.templates_yb[key].extend(y.to(u.deg).value)
-                    self.count[key] = self.count[key] + 1
+                    self.count[key] = self.count[key] + (1 * offset_area_scale[offset_bin])
                 else:
                     self.templates[key] = image.tolist()
                     self.templates_xb[key] = x.value.tolist()
                     self.templates_yb[key] = y.value.tolist()
-                    self.count[key] = 1
+                    self.count[key] = 1 * offset_area_scale[offset_bin]
 
             if num > max_events:
                 return self.templates, self.templates_xb, self.templates_yb

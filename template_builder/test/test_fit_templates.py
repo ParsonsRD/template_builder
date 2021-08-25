@@ -3,6 +3,7 @@ import numpy as np
 import pkg_resources
 from template_builder.utilities import *
 from template_builder.extend_templates import *
+import astropy.units as u
 
 # Make a simple test that our bin finder is working as we expect
 def test_bin_finder():
@@ -20,6 +21,13 @@ def test_bin_finder():
     # Then the Upper edge
     assert find_nearest_bin(test_array, 500) == 100.
 
+def test_angular_scaling():
+
+    scaling = create_angular_area_scaling(np.array([0.0])*u.deg, 1*u.deg)
+    assert scaling[0.0] == 1.
+
+    scaling = create_angular_area_scaling(np.array([0.5, 1.5])*u.deg, 2*u.deg)
+    assert scaling[0.5] == 4.
 
 def test_template_read():
     # Now lets check out our reading Chain
@@ -149,6 +157,6 @@ def test_full_fit():
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
     
-
+#test_angular_scaling()
 #test_template_fitting()
-test_full_fit()
+#test_full_fit()
