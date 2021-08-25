@@ -72,7 +72,7 @@ def test_template_fitting():
     for option in fit_options:
         fitter.training_library = option
 
-        template, var_template = fitter.fit_templates(
+        template, var_template, missed_fraction = fitter.fit_templates(
             {test_template: amp[test_template]},
             {test_template: raw_x[test_template]},
             {test_template: raw_y[test_template]}, True, 1000)
@@ -148,7 +148,6 @@ def test_full_fit():
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
-    print(missed_fraction)
     
 
 #test_template_fitting()

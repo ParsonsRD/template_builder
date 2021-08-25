@@ -123,8 +123,7 @@ class TemplateFitter:
                                                                                           window_width=16, window_shift=3, peak_index=3,
                                                                                           apply_integration_correction=False))
 
-        print(source._simulation_config)
-        self.count_total += source.simulation_config.num_events
+        self.count_total += source.simulation_config.num_showers
         grd_tel = None
         num = 0  # Event counter
 
