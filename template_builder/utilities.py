@@ -1,7 +1,9 @@
 import numpy as np
 import astropy.units as u
+from eventio import EventIOFile
+from eventio.simtel import MCShower
 
-__all__ = ["find_nearest_bin", "create_angular_area_scaling"]
+__all__ = ["find_nearest_bin", "create_angular_area_scaling","create_xmax_scaling", "xmax_expectation"]
 
 def find_nearest_bin(array, value):
     """
@@ -17,6 +19,9 @@ def find_nearest_bin(array, value):
 
     idx = (np.abs(array - value)).argmin()
     return array[idx]
+
+def xmax_expectation(energy):
+    return 300 + 93 * np.log10(energy)
 
 def create_angular_area_scaling(offset_bins, max_viewcone_radius):
     # Argh this code is horrible, but need to account for the angular area contained in each offset bin
@@ -48,3 +53,32 @@ def create_angular_area_scaling(offset_bins, max_viewcone_radius):
             offset_area_scale[offset.value] = total_area / ring_area
             i += 1
     return offset_area_scale
+
+def create_xmax_scaling(xmax_bins, filename):
+    output_dict = {}
+
+    shower_count = 0
+    with EventIOFile(filename) as f:
+        for o in f:
+            if isinstance(o, MCShower):
+                mc_shower = o.parse()
+
+
+                energy = mc_shower["energy"]
+                xmax_exp = xmax_expectation(energy)
+                zenith = (np.pi/2) - mc_shower['altitude']
+
+                xmax = mc_shower["xmax"] / np.cos(zenith)
+                xmax_bin = find_nearest_bin(xmax_bins, xmax-xmax_exp)
+
+                if xmax_bin in output_dict.keys():
+                    output_dict[xmax_bin] += 1
+                else:
+                    output_dict[xmax_bin] = 1
+                shower_count += 1
+
+    for key in output_dict.keys():
+        output_dict[key] = float(shower_count)/output_dict[key]
+    print(shower_count, output_dict)
+
+    return output_dict

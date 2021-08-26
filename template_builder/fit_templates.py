@@ -114,6 +114,8 @@ class TemplateFitter:
 
         if self.verbose:
             print("Reading", filename.strip())
+        
+        xmax_scale = create_xmax_scaling(self.xmax_bins, filename)
 
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
         offset_area_scale = create_angular_area_scaling(self.offset_bins, source.simulation_config.max_viewcone_radius)
@@ -245,7 +247,7 @@ class TemplateFitter:
                 mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
                 # Calc difference from expected Xmax (for gammas)
-                exp_xmax = 300 + 93 * np.log10(energy.value)
+                exp_xmax =xmax_expectation(energy.value)
                 x_diff = mc_xmax - exp_xmax
 
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
@@ -260,12 +262,12 @@ class TemplateFitter:
                     self.templates[key].extend(image)
                     self.templates_xb[key].extend(x.to(u.deg).value)
                     self.templates_yb[key].extend(y.to(u.deg).value)
-                    self.count[key] = self.count[key] + (1 * offset_area_scale[offset_bin])
+                    self.count[key] = self.count[key] + (1 * offset_area_scale[offset_bin] * xmax_scale[x_diff_bin])
                 else:
                     self.templates[key] = image.tolist()
                     self.templates_xb[key] = x.value.tolist()
                     self.templates_yb[key] = y.value.tolist()
-                    self.count[key] = 1 * offset_area_scale[offset_bin]
+                    self.count[key] = 1 * offset_area_scale[offset_bin] * xmax_scale[x_diff_bin]
 
             if num > max_events:
                 return self.templates, self.templates_xb, self.templates_yb
@@ -541,7 +543,7 @@ class TemplateFitter:
             # Turn our counts into a fraction missed
             for key in self.count.keys():
                 self.count[key] = (self.count[key]/self.count_total)
-
+                
             if extend_range:
                 self.count = extend_template_coverage(self.xmax_bins, self.count)
 

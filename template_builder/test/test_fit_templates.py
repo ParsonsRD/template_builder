@@ -125,7 +125,7 @@ def test_full_fit():
     # Finally check everything
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=100, training_library="keras", verbose=True)
+    fitter = TemplateFitter(min_fit_pixels=300, training_library="keras", verbose=False)
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
@@ -159,7 +159,8 @@ def test_full_fit():
 
     os.remove("./test.template.gz")
     os.remove("./test_var.template.gz")
-    
+    os.remove("./test_fraction.template.gz")
+
 #test_angular_scaling()
 #test_template_fitting()
 test_full_fit()
