@@ -148,7 +148,7 @@ class TemplateFitter:
                            frame=AltAz(obstime=dummy_time))
 
             alt_evt = event.pointing.array_altitude
-                if alt_evt > 90 * u.deg:
+            if alt_evt > 90 * u.deg:
                 alt_evt = 90*u.deg
 
             #print("here1", point.separation(src),  self.maximum_offset)
