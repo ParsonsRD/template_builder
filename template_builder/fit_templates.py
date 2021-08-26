@@ -146,6 +146,11 @@ class TemplateFitter:
             src = SkyCoord(alt=event.simulation.shower.alt.value * u.rad, 
                            az=event.simulation.shower.az.value * u.rad,
                            frame=AltAz(obstime=dummy_time))
+
+            alt_evt = event.pointing.array_altitude
+                if alt_evt > 90 * u.deg:
+                alt_evt = 90*u.deg
+
             #print("here1", point.separation(src),  self.maximum_offset)
             #if point.separation(src) > self.maximum_offset:
             #    continue
@@ -244,7 +249,7 @@ class TemplateFitter:
                 y = y[mask].astype(np.float32)
                 image = pmt_signal[mask].astype(np.float32)
 
-                zen = 90 - alt.to(u.deg).value
+                zen = 90 - alt_evt.to(u.deg).value
                 # Store simulated Xmax
                 mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
