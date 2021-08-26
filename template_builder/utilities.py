@@ -2,6 +2,8 @@ import numpy as np
 import astropy.units as u
 from eventio import EventIOFile
 from eventio.simtel import MCShower
+from astropy.coordinates import SkyCoord, AltAz
+from astropy.time import Time
 
 __all__ = ["find_nearest_bin", "create_angular_area_scaling","create_xmax_scaling", "xmax_expectation"]
 
@@ -54,16 +56,19 @@ def create_angular_area_scaling(offset_bins, max_viewcone_radius):
             i += 1
     return offset_area_scale
 
-def create_xmax_scaling(xmax_bins, filename):
+def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
     output_dict = {}
-
     shower_count = 0
+
+
     with EventIOFile(filename) as f:
+
+        dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
+
         for o in f:
             if isinstance(o, MCShower):
+
                 mc_shower = o.parse()
-
-
                 energy = mc_shower["energy"]
                 xmax_exp = xmax_expectation(energy)
                 zenith = (np.pi/2) - mc_shower['altitude']
@@ -71,10 +76,17 @@ def create_xmax_scaling(xmax_bins, filename):
                 xmax = mc_shower["xmax"] / np.cos(zenith)
                 xmax_bin = find_nearest_bin(xmax_bins, xmax-xmax_exp)
 
-                if xmax_bin in output_dict.keys():
-                    output_dict[xmax_bin] += 1
+                shower_direction = SkyCoord(alt=mc_shower['altitude']*u.rad, 
+                                            az=mc_shower['azimuth']*u.rad, 
+                                            frame=AltAz(obstime=dummy_time))
+                offset = array_pointing.separation(shower_direction).to(u.deg).value
+                offset_bin = find_nearest_bin(offset_bins.value, offset)
+
+                key = xmax_bin, offset_bin
+                if key in output_dict.keys():
+                    output_dict[key] += 1
                 else:
-                    output_dict[xmax_bin] = 1
+                    output_dict[key] = 1
                 shower_count += 1
 
     for key in output_dict.keys():

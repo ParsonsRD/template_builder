@@ -115,8 +115,6 @@ class TemplateFitter:
         if self.verbose:
             print("Reading", filename.strip())
         
-        xmax_scale = create_xmax_scaling(self.xmax_bins, filename)
-
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
         offset_area_scale = create_angular_area_scaling(self.offset_bins, source.simulation_config.max_viewcone_radius)
 
@@ -130,15 +128,19 @@ class TemplateFitter:
         self.count_total += source.simulation_config.num_showers
         grd_tel = None
         num = 0  # Event counter
+        scaling_filled = False
 
         for event in source:
             calib(event)
-
             alt = event.pointing.array_altitude
             if alt > 90 * u.deg:
                 alt = 90*u.deg
             point = SkyCoord(alt=alt, az=event.pointing.array_azimuth,
                             frame=AltAz(obstime=dummy_time))
+
+            if not scaling_filled:
+                xmax_scale = create_xmax_scaling(self.xmax_bins, self.offset_bins, point, filename)
+                scaling_filled = True
 
             # Create coordinate objects for source position
             src = SkyCoord(alt=event.simulation.shower.alt.value * u.rad, 
@@ -262,12 +264,12 @@ class TemplateFitter:
                     self.templates[key].extend(image)
                     self.templates_xb[key].extend(x.to(u.deg).value)
                     self.templates_yb[key].extend(y.to(u.deg).value)
-                    self.count[key] = self.count[key] + (1 * offset_area_scale[offset_bin] * xmax_scale[x_diff_bin])
+                    self.count[key] = self.count[key] + (1  * xmax_scale[(x_diff_bin, offset_bin)])
                 else:
                     self.templates[key] = image.tolist()
                     self.templates_xb[key] = x.value.tolist()
                     self.templates_yb[key] = y.value.tolist()
-                    self.count[key] = 1 * offset_area_scale[offset_bin] * xmax_scale[x_diff_bin]
+                    self.count[key] = 1 * xmax_scale[(x_diff_bin, offset_bin)]
 
             if num > max_events:
                 return self.templates, self.templates_xb, self.templates_yb
