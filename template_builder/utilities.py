@@ -81,7 +81,7 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
                                             frame=AltAz(obstime=dummy_time))
                 offset = array_pointing.separation(shower_direction).to(u.deg).value
                 offset_bin = find_nearest_bin(offset_bins.value, offset)
-
+#                print(offset, offset_bin, xmax, xmax_exp, xmax-xmax_exp, xmax_bin, np.rad2deg(zenith))
                 key = xmax_bin, offset_bin
                 if key in output_dict.keys():
                     output_dict[key] += 1
@@ -91,6 +91,6 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
 
     for key in output_dict.keys():
         output_dict[key] = float(shower_count)/output_dict[key]
-    print(shower_count, output_dict)
+#    print(shower_count, output_dict)
 
     return output_dict
