@@ -564,27 +564,27 @@ class TemplateFitter:
 
         return templates, variance_templates, self.count
 
-def calculate_correction_factors(self, file_list, template_file):
-    from scipy.interpolate import RegularGridInterpolator
+    def calculate_correction_factors(self, file_list, template_file):
+        from scipy.interpolate import RegularGridInterpolator
 
-    for filename in file_list:
-        pixel_x, pixel_y, amplitude = self.read_templates(filename)
-    
-    templates = pickle.load(gzip.open(template_file,"r"))
-    keys = amplitude.keys()
-
-    x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
-    y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-    scale = []
-
-    for key in keys:
-
-        template = templates[key]
-        x, y, amp = pixel_x[key], pixel_y[key], amplitude[key]
-        interpolator = RegularGridInterpolator((x_bins, y_bins), template)
-        prediction = interpolator((x, y))
-        scale_factor = amp[amp>5]/prediction[amp>5]
-        scale.append(scale_factor)
-        print(key, "scale", scale_factor)
+        for filename in file_list:
+            pixel_x, pixel_y, amplitude = self.read_templates(filename)
         
-    print("Average scale factor", np.average(scale))
+        templates = pickle.load(gzip.open(template_file,"r"))
+        keys = amplitude.keys()
+
+        x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+        y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+        scale = []
+
+        for key in keys:
+
+            template = templates[key]
+            x, y, amp = pixel_x[key], pixel_y[key], amplitude[key]
+            interpolator = RegularGridInterpolator((x_bins, y_bins), template)
+            prediction = interpolator((x, y))
+            scale_factor = amp[amp>5]/prediction[amp>5]
+            scale.append(scale_factor)
+            print(key, "scale", scale_factor)
+            
+        print("Average scale factor", np.average(scale))
