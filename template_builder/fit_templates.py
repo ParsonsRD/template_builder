@@ -116,8 +116,6 @@ class TemplateFitter:
             print("Reading", filename.strip())
         
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
-        offset_area_scale = create_angular_area_scaling(self.offset_bins, source.simulation_config.max_viewcone_radius)
-
         source.gain_selector.threshold = self.gain_threshold # Set our threshodl for gain selection
 
         # This value is currently set for HESS, need to make this more flexible in future
@@ -151,6 +149,11 @@ class TemplateFitter:
             #    continue
             offset_bin = find_nearest_bin(self.offset_bins, point.separation(src)).value
 
+            zen = 90 - event.simulation.shower.alt.to(u.deg).value
+            # Store simulated Xmax
+            mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
+
+            print("off2", point.separation(src).value, mc_xmax)
             # And transform into nominal system (where we store our templates)
             source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -554,3 +557,28 @@ class TemplateFitter:
             file_handler.close()
 
         return templates, variance_templates, self.count
+
+def calculate_correction_factors(self, file_list, template_file):
+    from scipy.interpolate import RegularGridInterpolator
+
+    for filename in file_list:
+        pixel_x, pixel_y, amplitude = self.read_templates(filename)
+    
+    templates = pickle.load(gzip.open(template_file,"r"))
+    keys = amplitude.keys()
+
+    x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
+    y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
+    scale = []
+
+    for key in keys:
+
+        template = templates[key]
+        x, y, amp = pixel_x[key], pixel_y[key], amplitude[key]
+        interpolator = RegularGridInterpolator((x_bins, y_bins), template)
+        prediction = interpolator((x, y))
+        scale_factor = amp[amp>5]/prediction[amp>5]
+        scale.append(scale_factor)
+        print(key, "scale", scale_factor)
+        
+    print("Average scale factor", np.average(scale))

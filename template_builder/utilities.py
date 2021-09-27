@@ -93,4 +93,4 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
         output_dict[key] = float(shower_count)/output_dict[key]
     print(shower_count, output_dict)
 
-    return output_dict
+    return output_dict 
