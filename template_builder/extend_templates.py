@@ -115,11 +115,15 @@ def extend_distance_range(xmax_bins, templates, additional_bins=4):
                             if diff > additional_bins:
                                 diff = additional_bins
                             for j in range(i, i + diff):
+                                lower = i-3;
+                                if lower < 0:
+                                    lower = 0
                                 interp = interp1d(distances[0:i], distance_list, axis=0,
                                                     bounds_error=False,
                                                     fill_value="extrapolate", kind="linear")
 
                                 int_val = interp(distances[j])
+
                                 int_val[int_val < 0] = 0
                                 key = (zen, az, en, distances[j], xmax, off)
 
