@@ -437,16 +437,32 @@ class TemplateFitter:
                 model.add(Dense(n, activation="relu"))
 
             model.add(Dense(1, activation='linear'))
-            # Still not sure MSE is the correct loss, but seems to work
-            model.compile(loss='mean_absolute_error',
+
+            def poisson_loss(y_true, y_pred):
+                return tensor_poisson_likelihood(y_true, y_pred, 0.5, 1.)
+
+            # First we have a go at fitting our model with a mean squared loss
+            # this gets us most of the way to the answer and is more stable
+            model.compile(loss="mse",
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
                                                      patience=20,
                                                      verbose=2, mode='auto')
             
-        
+            
             model.fit(pixel_pos, amp, epochs=10000,
+                      batch_size=50000,
+                      callbacks=[stopping], validation_split=0.1, verbose=0)
+            weights = model.get_weights()
+
+            # Then copy over the weights to a new model but with our poisson loss
+            # this should get the final normalisation right
+            model.compile(loss=poisson_loss,
+                          optimizer="adam", metrics=['accuracy'])
+            model.set_weights(weights)
+            
+            hist = model.fit(pixel_pos, amp, epochs=10000,
                       batch_size=50000,
                       callbacks=[stopping], validation_split=0.1, verbose=0)
             model_pred = model.predict(grid.T)
@@ -581,27 +597,6 @@ class TemplateFitter:
         
         amp_vals = None
         pred_vals = None
-        
-        def poisson_likelihood_gaussian(image, prediction, spe_width, ped):
-
-            image = np.asarray(image)
-            prediction = np.asarray(prediction)
-            spe_width = np.asarray(spe_width)
-            ped = np.asarray(ped)
-            
-            sq = 1. / np.sqrt(2 * np.pi * (np.power(ped, 2)
-                                     + prediction * (1 + np.power(spe_width, 2))))
-            
-            diff = np.power(image - prediction, 2.)
-            denom = 2 * (np.power(ped, 2) + prediction * (1 + np.power(spe_width, 2)))
-            expo = np.asarray(np.exp(-1 * diff / denom))
-            
-            # If we are outside of the range of datatype, fix to lower bound
-            min_prob = np.finfo(expo.dtype).tiny
-            expo[expo < min_prob] = min_prob
-            
-            return -2 * np.log(sq * expo)
-
 
         for key in keys:
             

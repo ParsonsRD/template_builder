@@ -5,7 +5,8 @@ from eventio.simtel import MCShower
 from astropy.coordinates import SkyCoord, AltAz
 from astropy.time import Time
 
-__all__ = ["find_nearest_bin", "create_angular_area_scaling","create_xmax_scaling", "xmax_expectation"]
+__all__ = ["find_nearest_bin", "create_angular_area_scaling", "poisson_likelihood_gaussian",
+           "tensor_poisson_likelihood", "create_xmax_scaling", "xmax_expectation"]
 
 def find_nearest_bin(array, value):
     """
@@ -93,3 +94,39 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
         output_dict[key] = float(shower_count)/output_dict[key]
 #    print(shower_count, output_dict)
     return output_dict 
+
+def poisson_likelihood_gaussian(image, prediction, spe_width=0.5, ped=1):
+
+    image = np.asarray(image)
+    prediction = np.asarray(prediction)
+    spe_width = np.asarray(spe_width)
+    ped = np.asarray(ped)
+    
+    sq = 1. / np.sqrt(2 * np.pi * (np.power(ped, 2)
+                                + prediction * (1 + np.power(spe_width, 2))))
+    
+    diff = np.power(image - prediction, 2.)
+    denom = 2 * (np.power(ped, 2) + prediction * (1 + np.power(spe_width, 2)))
+    expo = np.asarray(np.exp(-1 * diff / denom))
+    
+    # If we are outside of the range of datatype, fix to lower bound
+    min_prob = np.finfo(expo.dtype).tiny
+    expo[expo < min_prob] = min_prob
+    
+    return -2 * np.log(sq * expo)
+
+def tensor_poisson_likelihood(image, prediction, spe_width=0.5, ped=1):
+    import keras.backend as K
+    import tensorflow as tf
+
+    prediction = tf.clip_by_value(prediction, 1e-6, 1e9)
+
+    sq = 1. / K.sqrt(2. * np.pi * (K.square(ped)
+                                + prediction * (1. + K.square(spe_width))))
+
+    diff = K.square(image - prediction)
+    denom = 2. * (K.square(ped) + prediction * (1 + K.square(spe_width)))
+    expo = K.exp(-1 * diff / denom)
+    expo = tf.clip_by_value(expo, 1e-20, 100)
+
+    return K.mean(-2 * K.log(sq * expo))
