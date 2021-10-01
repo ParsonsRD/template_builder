@@ -158,7 +158,6 @@ class TemplateFitter:
             # Store simulated Xmax
             mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
-            print("off2", point.separation(src).value, mc_xmax)
             # And transform into nominal system (where we store our templates)
             source_direction = src.transform_to(NominalFrame(origin=point))
 
@@ -439,7 +438,7 @@ class TemplateFitter:
 
             model.add(Dense(1, activation='linear'))
             # Still not sure MSE is the correct loss, but seems to work
-            model.compile(loss='mean_squared_error',
+            model.compile(loss='mean_absolute_error',
                           optimizer="adam", metrics=['accuracy'])
             stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                      min_delta=0.0,
@@ -564,11 +563,14 @@ class TemplateFitter:
 
         return templates, variance_templates, self.count
 
-    def calculate_correction_factors(self, file_list, template_file):
+    def calculate_correction_factors(self, file_list, template_file, max_events=1000000):
+
         from scipy.interpolate import RegularGridInterpolator
+        from ctapipe.image.pixel_likelihood import  neg_log_likelihood_approx
+        from scipy.optimize import minimize
 
         for filename in file_list:
-            pixel_x, pixel_y, amplitude = self.read_templates(filename)
+            amplitude, pixel_x, pixel_y = self.read_templates(filename, max_events=max_events)
         
         templates = pickle.load(gzip.open(template_file,"r"))
         keys = amplitude.keys()
@@ -576,15 +578,68 @@ class TemplateFitter:
         x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
         scale = []
+        
+        amp_vals = None
+        pred_vals = None
+        
+        def poisson_likelihood_gaussian(image, prediction, spe_width, ped):
+
+            image = np.asarray(image)
+            prediction = np.asarray(prediction)
+            spe_width = np.asarray(spe_width)
+            ped = np.asarray(ped)
+            
+            sq = 1. / np.sqrt(2 * np.pi * (np.power(ped, 2)
+                                     + prediction * (1 + np.power(spe_width, 2))))
+            
+            diff = np.power(image - prediction, 2.)
+            denom = 2 * (np.power(ped, 2) + prediction * (1 + np.power(spe_width, 2)))
+            expo = np.asarray(np.exp(-1 * diff / denom))
+            
+            # If we are outside of the range of datatype, fix to lower bound
+            min_prob = np.finfo(expo.dtype).tiny
+            expo[expo < min_prob] = min_prob
+            
+            return -2 * np.log(sq * expo)
+
 
         for key in keys:
-
-            template = templates[key]
-            x, y, amp = pixel_x[key], pixel_y[key], amplitude[key]
-            interpolator = RegularGridInterpolator((x_bins, y_bins), template)
-            prediction = interpolator((x, y))
-            scale_factor = amp[amp>5]/prediction[amp>5]
-            scale.append(scale_factor)
-            print(key, "scale", scale_factor)
             
-        print("Average scale factor", np.average(scale))
+            key_cut = key[:-1]
+            try:
+                template = templates[key_cut]
+                amp, x, y = amplitude[key], pixel_x[key], pixel_y[key]
+                amp = np.array(amp)
+                
+                interpolator = RegularGridInterpolator((y_bins, x_bins), template, bounds_error=False, fill_value=0)
+                prediction = interpolator((y, x)) 
+                prediction[prediction<1e-6] = 1e-6
+                
+                def scale_like(scale_factor):
+                    return np.sum(poisson_likelihood_gaussian(amp, prediction*scale_factor[0], 0.5, 1))
+
+                print(key, minimize(scale_like, [1.], method='Nelder-Mead').x)
+                if amp_vals is None:
+                    amp_vals = amp
+                    pred_vals = prediction
+                else:
+                    amp_vals = np.concatenate((amp_vals, amp))
+                    pred_vals = np.concatenate((pred_vals, prediction))
+
+            except KeyError:
+                print(key, "Key missing")
+        
+        print(pred_vals)
+        def scale_like(scale_factor):
+            return np.sum(poisson_likelihood_gaussian(amp_vals, pred_vals*scale_factor[0], 0.5, 1))
+
+        res = minimize(scale_like, [1.], method='Nelder-Mead')
+        print("scale", res.x)
+        if res.x[0] is None:
+            return 1
+
+        return res.x[0]
+            
+#                scale.append(scale_factor)
+            
+#        print("Average scale factor", np.average(scale))
