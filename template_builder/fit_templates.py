@@ -33,10 +33,8 @@ class TemplateFitter:
                  offset_bins=np.array([0.0])*u.deg,
                  verbose=False, 
                  rotation_angle=0 * u.deg, 
-                 training_library="keras",
                  tailcuts=(7, 14), min_amp=30, local_distance_cut=2.*u.deg,
-                 gain_threshold=30000,
-                 amplitude_correction=False):
+                 gain_threshold=30000):
         """[summary]
 
         Args:
@@ -48,12 +46,10 @@ class TemplateFitter:
             maximum_offset ([type], optional): [description]. Defaults to 10*u.deg.
             verbose (bool, optional): [description]. Defaults to False.
             rotation_angle ([type], optional): [description]. Defaults to 0*u.deg.
-            training_library (str, optional): [description]. Defaults to "keras".
             tailcuts (tuple, optional): [description]. Defaults to (7, 14).
             min_amp (int, optional): [description]. Defaults to 30.
             local_distance_cut ([type], optional): [description]. Defaults to 2.*u.deg.
             gain_threshold (int, optional): [description]. Defaults to 30000.
-            amplitude_correction (bool, optional): [description]. Defaults to False.
         """
 
         self.verbose = verbose
@@ -66,7 +62,6 @@ class TemplateFitter:
 
         self.rotation_angle = rotation_angle
         self.offset_bins = np.sort(offset_bins)
-        self.training_library = training_library
         self.tailcuts = tailcuts
         self.min_amp = min_amp
         self.local_distance_cut = local_distance_cut
@@ -82,10 +77,8 @@ class TemplateFitter:
         self.count = dict() # Count of events in a given template
         self.count_total = 0 # Total number of events 
 
-        self.amplitude_correction = amplitude_correction
         self.gain_threshold = gain_threshold
 
-        self.amplitude_correction = amplitude_correction
 
     def read_templates(self, filename, max_events=1000000):
         """
@@ -259,7 +252,6 @@ class TemplateFitter:
                 exp_xmax =xmax_expectation(energy.value)
                 x_diff = mc_xmax - exp_xmax
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-#                print(point.separation(src).value, offset_bin, mc_xmax, exp_xmax,x_diff, x_diff_bin, zen)
 
                 az = point.az.to(u.deg).value
                 zen = 90. - point.alt.to(u.deg).value
@@ -338,7 +330,7 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            template_output = self.perform_fit(amp, pixel_pos, self.training_library,max_fitpoints)
+            template_output = self.perform_fit(amp, pixel_pos, max_fitpoints)
             templates_out[key] = template_output.astype(np.float32)
             
             #if make_variance_template:
@@ -346,7 +338,7 @@ class TemplateFitter:
 
         return templates_out, variance_templates_out
 
-    def perform_fit(self, amp, pixel_pos,  training_library, max_fitpoints=None,
+    def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
                     nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
@@ -371,10 +363,6 @@ class TemplateFitter:
             amp = amp[indices[:max_fitpoints]]
             pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
-        if self.verbose:
-            print("Fitting template using", training_library, "with", amp.shape[0],
-                  "total pixels")
-
         # Create grid over which to evaluate our fit
         x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
@@ -388,92 +376,56 @@ class TemplateFitter:
         amp = np.concatenate((amp, amp))
         x, y = pixel_pos.T
 
-        # Fit using kernal density estimates
-        if training_library == "kde":
-            # We use this fast KDE library rather than the scikit learn or scipy implmentation
-            from KDEpy import FFTKDE
-            from scipy.interpolate import LinearNDInterpolator
+        # Fit image pixels using a multi layer perceptron
+        from scipy.interpolate import LinearNDInterpolator
+        from keras.models import Sequential
+        from keras.layers import Dense
+        import keras
+        
+        model = Sequential()
+        model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
+        # We make a very deep network
+        for n in nodes[1:]:
+            model.add(Dense(n, activation="relu"))
 
-            data = np.vstack((x, y, amp))
+        model.add(Dense(1, activation='linear'))
 
-            # This bandwidth is a reasonable guess
-            bw = 0.02
-            kde = FFTKDE(bw=bw, kernel='gaussian').fit(data.T)
-            # Estimate pdf on a 3D grid
-            z_bins = 400
-            points, out = kde.evaluate((self.bins[0], self.bins[1], z_bins))
-            points_x, points_y, points_z = points.T
-            
-            # Then calculate average value on the amplitude axis
-            weights = (out*points_z).reshape((self.bins[0], self.bins[1], 400))
-            average_value = np.sum(weights, axis=-1) / \
-                            np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
-            average_value = average_value - 1
+        def poisson_loss(y_true, y_pred):
+            return tensor_poisson_likelihood(y_true, y_pred, 0.5, 1.)
 
-            squared_average_value = np.sum(weights**2, axis=-1) / \
-                                    np.sum(out.reshape((self.bins[0], self.bins[1], 400)), axis=-1)
-            
-            points_x = points_x.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
-            points_y = points_y.reshape((self.bins[0], self.bins[1], 400))[:, :, 0].ravel()
+        # First we have a go at fitting our model with a mean squared loss
+        # this gets us most of the way to the answer and is more stable
+        model.compile(loss="mse",
+                        optimizer="adam", metrics=['accuracy'])
+        stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                    min_delta=0.0,
+                                                    patience=20,
+                                                    verbose=2, mode='auto')
+        
+        
+        model.fit(pixel_pos, amp, epochs=10000,
+                    batch_size=50000,
+                    callbacks=[stopping], validation_split=0.1, verbose=0)
+        weights = model.get_weights()
 
-            # Then interpolate on our evaluated grid points to give the template                
-            lin = LinearNDInterpolator(np.vstack((points_x, points_y)).T, average_value.ravel(), fill_value=0)
-            kde_pred = lin(grid.T)
+        # Then copy over the weights to a new model but with our poisson loss
+        # this should get the final normalisation right
+        model.compile(loss=poisson_loss,
+                        optimizer="adam", metrics=['accuracy'])
+        model.set_weights(weights)
+        
+        hist = model.fit(pixel_pos, amp, epochs=10000,
+                    batch_size=50000,
+                    callbacks=[stopping], validation_split=0.1, verbose=0)
+        model_pred = model.predict(grid.T)
 
-            return kde_pred.reshape((self.bins[1], self.bins[0]))
+        # Set everything outside the range of our points to zero
+        # This is a bit of a hacky way of doing this, but is fast and works
+        lin_range = LinearNDInterpolator(pixel_pos, amp, fill_value=0)
+        lin_nan = lin_range(grid.T) == 0
+        model_pred[lin_nan] = 0
 
-        elif training_library == "keras":
-            # Fit image pixels using a multi layer perceptron
-            from scipy.interpolate import LinearNDInterpolator
-
-            from keras.models import Sequential
-            from keras.layers import Dense
-            import keras
-            
-            model = Sequential()
-            model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
-            # We make a very deep network
-            for n in nodes[1:]:
-                model.add(Dense(n, activation="relu"))
-
-            model.add(Dense(1, activation='linear'))
-
-            def poisson_loss(y_true, y_pred):
-                return tensor_poisson_likelihood(y_true, y_pred, 0.5, 1.)
-
-            # First we have a go at fitting our model with a mean squared loss
-            # this gets us most of the way to the answer and is more stable
-            model.compile(loss="mse",
-                          optimizer="adam", metrics=['accuracy'])
-            stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                     min_delta=0.0,
-                                                     patience=20,
-                                                     verbose=2, mode='auto')
-            
-            
-            model.fit(pixel_pos, amp, epochs=10000,
-                      batch_size=50000,
-                      callbacks=[stopping], validation_split=0.1, verbose=0)
-            weights = model.get_weights()
-
-            # Then copy over the weights to a new model but with our poisson loss
-            # this should get the final normalisation right
-            model.compile(loss=poisson_loss,
-                          optimizer="adam", metrics=['accuracy'])
-            model.set_weights(weights)
-            
-            hist = model.fit(pixel_pos, amp, epochs=10000,
-                      batch_size=50000,
-                      callbacks=[stopping], validation_split=0.1, verbose=0)
-            model_pred = model.predict(grid.T)
-
-            # Set everything outside the range of our points to zero
-            # This is a bit of a hacky way of doing this, but is fast and works
-            lin_range = LinearNDInterpolator(pixel_pos, amp, fill_value=0)
-            lin_nan = lin_range(grid.T) == 0
-            model_pred[lin_nan] = 0
-
-            return model_pred.reshape((self.bins[1], self.bins[0]))
+        return model_pred.reshape((self.bins[1], self.bins[0]))
 
     def generate_templates(self, file_list, output_file=None, variance_output_file=None, fraction_output_file=None,
                            extend_range=True, max_events=1e9, max_fitpoints=None):
@@ -517,20 +469,6 @@ class TemplateFitter:
             if make_variance:
                 variance_templates.update(file_variance_templates)
 
-            # Correct the amplitude by the normalisation from KDE fitting if requested 
-            # re-run the template reading, predict the image and take the ratio to the
-            # real image
-            if self.amplitude_correction:
-                self.training_library = "kde"
-                file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                            pix_lists[1],
-                                                                            pix_lists[2],
-                                                                            make_variance,
-                                                                            max_fitpoints)
-                self.template_fit_kde = file_templates
-                for filename in file_list:
-                    _ = self.read_templates(filename, max_events, fill_correction=True)
-
             pix_lists = None
             file_templates = None
             file_variance_templates = None
@@ -540,19 +478,6 @@ class TemplateFitter:
                 templates = extend_template_coverage(self.xmax_bins, templates)
                 if make_variance:
                     variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
-
-            # Perform correction on the templates
-            if self.amplitude_correction:
-
-                for key in self.correction.keys():
-                    correction_factor = np.median(self.correction[key])
-                    correction_factor_error = np.std(self.correction[key]) / np.sqrt(float(len(self.correction[key])))
-
-                    print(correction_factor_error / correction_factor, correction_factor)
-                    if correction_factor > 0 and correction_factor_error / correction_factor < 0.1:
-                        self.template_fit[key] = self.template_fit[key] * np.median(self.correction[key])
-                    else:
-                        self.template_fit.pop(key)
 
             # Finally write everything out to a gzipped pickle file
             file_handler = gzip.open(output_file, "wb")
@@ -580,40 +505,50 @@ class TemplateFitter:
         return templates, variance_templates, self.count
 
     def calculate_correction_factors(self, file_list, template_file, max_events=1000000):
+        """ Funtion for performing a simple correction to the template amplitudes to
+        match the training images. Only needed if significant fit biases are seen
 
+        Args:
+            file_list (list): List of input file names
+            template_file (string): File name of template file
+            max_events (int, optional): Maximum number of events to include in fitting. Defaults to 1000000.
+
+        Returns:
+            float: Scaling factor to the templates
+        """
         from scipy.interpolate import RegularGridInterpolator
-        from ctapipe.image.pixel_likelihood import  neg_log_likelihood_approx
         from scipy.optimize import minimize
 
+        # Loop over input file and read in events
         for filename in file_list:
             amplitude, pixel_x, pixel_y = self.read_templates(filename, max_events=max_events)
         
+        # Open up the template file
         templates = pickle.load(gzip.open(template_file,"r"))
         keys = amplitude.keys()
 
+        # Define our template binning
         x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-        scale = []
         
         amp_vals = None
         pred_vals = None
 
+        # Loop over all templates
         for key in keys:
-            
-            key_cut = key[:-1]
             try:
-                template = templates[key_cut]
+                # Get the template matching our data
+                template = templates[key]
+                # And the event amplitudes and locations
                 amp, x, y = amplitude[key], pixel_x[key], pixel_y[key]
                 amp = np.array(amp)
                 
+                # Create interpolator for our template and predict amplitude
                 interpolator = RegularGridInterpolator((y_bins, x_bins), template, bounds_error=False, fill_value=0)
                 prediction = interpolator((y, x)) 
                 prediction[prediction<1e-6] = 1e-6
                 
-                def scale_like(scale_factor):
-                    return np.sum(poisson_likelihood_gaussian(amp, prediction*scale_factor[0], 0.5, 1))
-
-                print(key, minimize(scale_like, [1.], method='Nelder-Mead').x)
+                # Store the amplitude and prediction
                 if amp_vals is None:
                     amp_vals = amp
                     pred_vals = prediction
@@ -624,17 +559,17 @@ class TemplateFitter:
             except KeyError:
                 print(key, "Key missing")
         
-        print(pred_vals)
+        # Define the Poissonian fit function used to fit datas
         def scale_like(scale_factor):
+            # Reasonable values of single photoelection width and pedestal are used
+            # Might need to change for different detector types
             return np.sum(poisson_likelihood_gaussian(amp_vals, pred_vals*scale_factor[0], 0.5, 1))
 
+        # Minimise this function to get the scaling factor
         res = minimize(scale_like, [1.], method='Nelder-Mead')
-        print("scale", res.x)
+        # If our fit fails don't scale
         if res.x[0] is None:
             return 1
-
+        
+        # Otherwise return scale factor
         return res.x[0]
-            
-#                scale.append(scale_factor)
-            
-#        print("Average scale factor", np.average(scale))
