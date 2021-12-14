@@ -99,7 +99,7 @@ class CORSIKAInput:
         for alt in np.nditer(altitude):
             for az in np.nditer(azimuth):
                 # We will need this later for coordinate conversions
-                horizon_system = SkyCoord(alt=alt*u.deg, az=az*u.deg - arrang*u.deg,
+                horizon_system = SkyCoord(alt=alt*u.deg, az=az*u.deg + arrang*u.deg,
                                           frame=AltAz())
 
                 # Scale the simulated energies if requested
@@ -146,12 +146,15 @@ class CORSIKAInput:
         """
         card_dict = {}
         for zen, az, en in simuation_dict:
+            arrang = 0
+            if "ARRANG" in self.input_parameters.keys():
+                arrang = float(self.input_parameters["ARRANG"])
 
             particle_input = "PRMPAR %s \n" % \
                              (particle_lookup[self.primary_particle.lower()])
 
             zenith_input = "THETAP %.1f %.1f \n" % (zen, zen)
-            azimuth_input = "PHIP %.1f %.1f \n" % (az, az)
+            azimuth_input = "PHIP %.1f %.1f \n" % (az + arrang, az + arrang)
             energy_input = "ERANGE %.1f %.1f \n" % (en * 1000, en * 1000)
 
             num = float(num_showers) * np.power(float(en), self.event_scaling_index)
