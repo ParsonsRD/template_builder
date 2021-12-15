@@ -3,6 +3,7 @@ name: template_builder
 channels:
   - default
   - cta-observatory
+  - conda-forge
 dependencies:
   - astropy
   - ctapipe==0.12.0
