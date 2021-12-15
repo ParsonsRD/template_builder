@@ -74,26 +74,20 @@ def test_template_fitting():
     amp, raw_x, raw_y = fitter.read_templates(data_dir)
     test_template = (0., 0., 1., 0., 50., 0.)
 
-    # Then lets fit our example template using the different options
-    fit_options = ["keras", "kde"]
+    template, var_template = fitter.fit_templates(
+        {test_template: amp[test_template]},
+        {test_template: raw_x[test_template]},
+        {test_template: raw_y[test_template]}, True, 1000)
 
-    for option in fit_options:
-        fitter.training_library = option
+    assert template is not None
+    assert var_template is not None
 
-        template, var_template = fitter.fit_templates(
-            {test_template: amp[test_template]},
-            {test_template: raw_x[test_template]},
-            {test_template: raw_y[test_template]}, True, 1000)
+    x = np.linspace(fitter.bounds[0][0], fitter.bounds[0][1], fitter.bins[0])
+    y = np.linspace(fitter.bounds[1][0], fitter.bounds[1][1], fitter.bins[1])
 
-        assert template is not None
-        assert var_template is not None
-
-        x = np.linspace(fitter.bounds[0][0], fitter.bounds[0][1], fitter.bins[0])
-        y = np.linspace(fitter.bounds[1][0], fitter.bounds[1][1], fitter.bins[1])
-
-        # Make sure the template is the expected shape
-        assert template[test_template].shape[0] == fitter.bins[1]
-        assert template[test_template].shape[1] == fitter.bins[0]
+    # Make sure the template is the expected shape
+    assert template[test_template].shape[0] == fitter.bins[1]
+    assert template[test_template].shape[1] == fitter.bins[0]
 
         #assert var_template[test_template].shape[0] == fitter.bins[1]
         #assert var_template[test_template].shape[1] == fitter.bins[0]
@@ -125,7 +119,7 @@ def test_full_fit():
     # Finally check everything
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=300, training_library="keras", verbose=False)
+    fitter = TemplateFitter(min_fit_pixels=300, verbose=False)
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
@@ -147,14 +141,13 @@ def test_full_fit():
     # Open our output files
     import pickle, gzip
     template_fromfile = pickle.load(gzip.open("./test.template.gz","r"))
-    var_template_fromfile = pickle.load(gzip.open("./test_var.template.gz","r"))
     fraction_fromfile = pickle.load(gzip.open("./test_fraction.template.gz","r"))
 
     import matplotlib.pyplot as plt
     # And check the contents are the same
     for key in template:
         assert template[key].all() == template_fromfile[key].all()
-        #assert var_template[key].all() == var_template_fromfile[key].all()
+    for key in missed_fraction:
         assert missed_fraction[key] == fraction_fromfile[key]
 
     os.remove("./test.template.gz")
