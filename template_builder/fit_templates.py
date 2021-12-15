@@ -206,6 +206,15 @@ class TemplateFitter:
                                     np.power(tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
                     to(u.m).value
                 
+                mask510 = tailcuts_clean(geom, pmt_signal,
+                                         picture_thresh=self.tailcuts[0],
+                                         boundary_thresh=self.tailcuts[1],
+                                         min_number_picture_neighbors=1)
+
+                amp_sum = np.sum(pmt_signal[mask510])
+                x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
+                y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
+                
                 # now rotate and translate our images such that they lie on top of one
                 # another
                 x, y = \
@@ -217,20 +226,12 @@ class TemplateFitter:
 
                 # We only want to keep pixels that fall within the bounds of our
                 # final template
-                mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                                        x < self.bounds[0][1] * u.deg)
-                mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
+                #mask = np.logical_and(x > self.bounds[0][0] * u.deg,
+                #                        x < self.bounds[0][1] * u.deg)
+                #mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
+                #mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
 
-                mask510 = tailcuts_clean(geom, pmt_signal,
-                                        picture_thresh=self.tailcuts[0],
-                                        boundary_thresh=self.tailcuts[1],
-                                        min_number_picture_neighbors=1)
 
-                amp_sum = np.sum(pmt_signal[mask510])
-                x_cent = np.sum(pmt_signal[mask510] * x[mask510]) / amp_sum
-                y_cent = np.sum(pmt_signal[mask510] * y[mask510]) / amp_sum
-                
                 mask = mask510
                 for i in range(4):
                     mask = dilate(geom, mask)
