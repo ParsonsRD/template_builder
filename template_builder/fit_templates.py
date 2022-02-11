@@ -6,6 +6,12 @@ import pickle
 
 import astropy.units as u
 import numpy as np
+import scipy
+
+from scipy.interpolate import LinearNDInterpolator
+from keras.models import Sequential
+from keras.layers import Dense
+import keras
 
 from template_builder.utilities import *
 from template_builder.extend_templates import *
@@ -19,9 +25,9 @@ from ctapipe.reco import ImPACTReconstructor
 from tqdm import tqdm
 from ctapipe.image import tailcuts_clean, dilate
 from ctapipe.calib import CameraCalibrator
-from ctapipe.image.extractor import FullWaveformSum, FixedWindowSum
+from ctapipe.image.extractor import BaselineSubtractedNeighborPeakWindowSum, FixedWindowSum
 from ctapipe.calib.camera.gainselection import ThresholdGainSelector
-
+from ctapipe.fitting import lts_linear_regression
 
 class TemplateFitter:
 
@@ -66,17 +72,16 @@ class TemplateFitter:
         self.min_amp = min_amp
         self.local_distance_cut = local_distance_cut
 
+        self.time_slope = dict()  # Pixel amplitude
         self.templates = dict()  # Pixel amplitude
-        self.template_fit = dict()  # Pixel amplitude
-        self.template_fit_kde = dict()  # Pixel amplitude
 
         self.templates_xb = dict()  # Rotated X position
         self.templates_yb = dict()  # Rotated Y positions
-        self.correction = dict()
 
         self.count = dict() # Count of events in a given template
         self.count_total = 0 # Total number of events 
 
+        # Switch over point between the two gain channels
         self.gain_threshold = gain_threshold
 
 
@@ -111,10 +116,10 @@ class TemplateFitter:
         source = EventSource(filename, max_events=max_events, gain_selector_type='ThresholdGainSelector')
         source.gain_selector.threshold = self.gain_threshold # Set our threshodl for gain selection
 
+        window = BaselineSubtractedNeighborPeakWindowSum(source.subarray,
+                                                         window_width=7, window_shift=3, lwt=0)
         # This value is currently set for HESS, need to make this more flexible in future
-        calib = CameraCalibrator(subarray=source.subarray, image_extractor=FixedWindowSum(source.subarray,
-                                                                                          window_width=16, window_shift=3, peak_index=3,
-                                                                                          apply_integration_correction=False))
+        calib = CameraCalibrator(subarray=source.subarray, image_extractor=window)
 
         self.count_total += source.simulation_config.num_showers
         grd_tel = None
@@ -222,15 +227,7 @@ class TemplateFitter:
                                                             source_direction.fov_lon,
                                                             source_direction.fov_lat,
                                                             phi)
-                x *= -1
-
-                # We only want to keep pixels that fall within the bounds of our
-                # final template
-                #mask = np.logical_and(x > self.bounds[0][0] * u.deg,
-                #                        x < self.bounds[0][1] * u.deg)
-                #mask = np.logical_and(mask, y < self.bounds[1][1] * u.deg)
-                #mask = np.logical_and(mask, y > self.bounds[1][0] * u.deg)
-
+                x *= -1 # Reverse x axis to fit HESS convention
 
                 mask = mask510
                 for i in range(4):
@@ -239,11 +236,12 @@ class TemplateFitter:
                 # Make our preselection cuts
                 if amp_sum < self.min_amp and np.sqrt(x_cent**2 + y_cent**2) < self.local_distance_cut:
                     continue
-
+                
                 # Make sure everything is 32 bit
                 x = x[mask].astype(np.float32)
                 y = y[mask].astype(np.float32)
                 image = pmt_signal[mask].astype(np.float32)
+                peak_time = dl1.peak_time[mask].astype(np.float32)
 
                 zen = 90 - alt_evt.to(u.deg).value
                 # Store simulated Xmax
@@ -253,6 +251,15 @@ class TemplateFitter:
                 exp_xmax =xmax_expectation(energy.value)
                 x_diff = mc_xmax - exp_xmax
                 x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
+
+                time_mask = image>5
+                if np.sum(time_mask)>3:
+                    # Linear regression code needs double precision for some reason
+                    xv = x.to(u.deg).value[time_mask].astype("float64")
+                    pt = peak_time[time_mask].astype("float64")                    
+                    time_slope = lts_linear_regression(x=xv, y=pt, samples=3)[0][0]
+                else:
+                    time_slope = 0.
 
                 az = point.az.to(u.deg).value
                 zen = 90. - point.alt.to(u.deg).value
@@ -266,21 +273,22 @@ class TemplateFitter:
                     self.templates_xb[key].extend(x.to(u.deg).value)
                     self.templates_yb[key].extend(y.to(u.deg).value)
                     self.count[key] = self.count[key] + (1  * xmax_scale[(x_diff_bin, offset_bin)])
+                    self.time_slope[key].append(time_slope)
                 else:
                     self.templates[key] = image.tolist()
                     self.templates_xb[key] = x.value.tolist()
                     self.templates_yb[key] = y.value.tolist()
                     self.count[key] = 1 * xmax_scale[(x_diff_bin, offset_bin)]
+                    self.time_slope[key] = [time_slope]
 
             if num > max_events:
-                return self.templates, self.templates_xb, self.templates_yb
+                return True
 
             num += 1
 
-        return self.templates, self.templates_xb, self.templates_yb
+        return True
 
-    def fit_templates(self, amplitude, x_pos, y_pos,
-                      make_variance_template, max_fitpoints):
+    def fit_templates(self, amplitude, x_pos, y_pos):
         """
         Perform MLP fit over a dictionary of pixel lists
 
@@ -307,8 +315,6 @@ class TemplateFitter:
         # Create grid over which to evaluate our fit
         x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-        xx, yy = np.meshgrid(x, y)
-        grid = np.vstack((xx.ravel(), yy.ravel()))
 
         first = True
         # Loop over all templates
@@ -331,15 +337,15 @@ class TemplateFitter:
             pixel_pos = np.vstack([x, y])
 
             # Fit with MLP
-            template_output = self.perform_fit(amp, pixel_pos, max_fitpoints)
+            template_output = self.perform_fit(amp, pixel_pos)
             templates_out[key] = template_output.astype(np.float32)
             
             #if make_variance_template:
                 # need better plan for var templates
 
-        return templates_out, variance_templates_out
+        return templates_out
 
-    def perform_fit(self, amp, pixel_pos, max_fitpoints=None,
+    def perform_fit(self, amp, pixel_pos, 
                     nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
@@ -348,21 +354,12 @@ class TemplateFitter:
             Pixel amplitudes
         :param pixel_pos: ndarray
             Pixel XY coordinate format (N, 2)
-        :param max_fitpoints: int
-            Maximum number of points to include in MLP fit
         :param nodes: tuple
             Node layout of MLP
         :return: MLP
             Fitted MLP model
         """
         pixel_pos = pixel_pos.T
-
-        # If we put a limit on this then randomly choose points
-        if max_fitpoints is not None and amp.shape[0] > max_fitpoints:
-            indices = np.arange(amp.shape[0])
-            np.random.shuffle(indices)
-            amp = amp[indices[:max_fitpoints]]
-            pixel_pos = pixel_pos[indices[:max_fitpoints]]
 
         # Create grid over which to evaluate our fit
         x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
@@ -378,11 +375,6 @@ class TemplateFitter:
         x, y = pixel_pos.T
 
         # Fit image pixels using a multi layer perceptron
-        from scipy.interpolate import LinearNDInterpolator
-        from keras.models import Sequential
-        from keras.layers import Dense
-        import keras
-        
         model = Sequential()
         model.add(Dense(nodes[0], activation="relu", input_shape=(2,)))
         # We make a very deep network
@@ -428,8 +420,47 @@ class TemplateFitter:
 
         return model_pred.reshape((self.bins[1], self.bins[0]))
 
-    def generate_templates(self, file_list, output_file=None, variance_output_file=None, fraction_output_file=None,
-                           extend_range=True, max_events=1e9, max_fitpoints=None):
+    def save_templates(self, output_file):
+
+        file_templates = self.fit_templates(self.templates, self.templates_xb, self.templates_yb)
+
+        file_handler = gzip.open(output_file, "wb")
+        pickle.dump(file_templates, file_handler)
+        file_handler.close()
+
+        return file_templates
+
+    def save_time_slope(self, output_file):
+
+        output_dict = {}
+        output_dict_unncert = {}
+
+        for key in tqdm(list(self.time_slope.keys())):
+            time_slope_list = self.time_slope[key]
+            if len(time_slope_list) >9:
+                output_dict[key] = scipy.stats.trim_mean(time_slope_list)
+                output_dict_unncert[key] = scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)
+
+        file_handler = gzip.open(output_file, "wb")
+        pickle.dump(output_dict, file_handler)
+        file_handler.close()
+
+        return output_dict
+
+    def save_fraction(self, output_file):
+
+        output_dict = {}
+        for key in self.count.keys():
+            output_dict[key] = (self.count[key]/self.count_total)
+
+        file_handler = gzip.open(output_file, "wb")
+        pickle.dump(output_dict, file_handler)
+        file_handler.close()
+
+        return output_dict
+
+    def generate_templates(self, file_list, output_file=None, fraction_output_file=None,
+                           time_slope_output_file=None, max_events=1e9):
         """
 
         :param file_list: list
@@ -442,66 +473,29 @@ class TemplateFitter:
             Extend range of the templates beyond simulations
         :param max_events: int
             Maximum number of events to process
-        :param max_fitpoints: int
-            Maximum number of points to include in the MLP fit
         :return: dict
             Dictionary of image templates
 
         """
-
-        make_variance = variance_output_file is not None
 
         templates = dict()
         variance_templates = dict()
 
         # Read in the files listed consecutively 
         for filename in file_list:
-            pix_lists = self.read_templates(filename, max_events)
+            self.read_templates(filename, max_events)
+
         if output_file is not None:
             # Fit them using the method requested
-            file_templates, file_variance_templates = self.fit_templates(pix_lists[0],
-                                                                        pix_lists[1],
-                                                                        pix_lists[2],
-                                                                        make_variance,
-                                                                        max_fitpoints)
-            templates.update(file_templates)
-            self.template_fit = templates
-
-            if make_variance:
-                variance_templates.update(file_variance_templates)
-
-            pix_lists = None
-            file_templates = None
-            file_variance_templates = None
-
-            # Extend coverage of the templates by extrapolation if requested
-            if extend_range:
-                templates = extend_template_coverage(self.xmax_bins, templates)
-                if make_variance:
-                    variance_templates = extend_template_coverage(self.xmax_bins, variance_templates)
-
-            # Finally write everything out to a gzipped pickle file
-            file_handler = gzip.open(output_file, "wb")
-            pickle.dump(self.template_fit, file_handler)
-            file_handler.close()
-
-            # And variance templates if needed
-            if make_variance:
-                file_handler = gzip.open(variance_output_file, "wb")
-                pickle.dump(variance_templates, file_handler)
-                file_handler.close()
+            self.save_templates(output_file)
 
         if fraction_output_file is not None:
             # Turn our counts into a fraction missed
-            for key in self.count.keys():
-                self.count[key] = (self.count[key]/self.count_total)
-                
-            if extend_range:
-                self.count = extend_template_coverage(self.xmax_bins, self.count)
+            self.save_fraction(fraction_output_file)
 
-            file_handler = gzip.open(fraction_output_file, "wb")
-            pickle.dump(self.count, file_handler)
-            file_handler.close()
+        if time_slope_output_file is not None:
+            # save our time slope output
+            self.save_time_slope(time_slope_output_file)
 
         return templates, variance_templates, self.count
 

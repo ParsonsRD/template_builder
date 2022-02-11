@@ -61,7 +61,6 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
     output_dict = {}
     shower_count = 0
 
-
     with EventIOFile(filename) as f:
 
         dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
@@ -70,6 +69,7 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
             if isinstance(o, MCShower):
 
                 mc_shower = o.parse()
+                
                 energy = mc_shower["energy"]
                 xmax_exp = xmax_expectation(energy)
                 zenith = (np.pi/2) - mc_shower['altitude']
@@ -92,7 +92,7 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
 
     for key in output_dict.keys():
         output_dict[key] = float(shower_count)/output_dict[key]
-#    print(shower_count, output_dict)
+
     return output_dict 
 
 def poisson_likelihood_gaussian(image, prediction, spe_width=0.5, ped=1):

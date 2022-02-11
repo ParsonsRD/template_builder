@@ -5,30 +5,6 @@ from template_builder.utilities import *
 from template_builder.extend_templates import *
 import astropy.units as u
 
-# Make a simple test that our bin finder is working as we expect
-def test_bin_finder():
-
-    test_array = np.linspace(0, 100, 11)
-
-    # First test the lower edge
-    assert find_nearest_bin(test_array, 0) == 0.
-    assert find_nearest_bin(test_array, -100) == 0.
-
-    # Then the middle
-    assert find_nearest_bin(test_array, 54.9) == 50.
-    assert find_nearest_bin(test_array, 55.1) == 60.
-
-    # Then the Upper edge
-    assert find_nearest_bin(test_array, 500) == 100.
-
-def test_angular_scaling():
-
-    scaling = create_angular_area_scaling(np.array([0.0])*u.deg, 1*u.deg)
-    assert scaling[0.0] == 1.
-
-    scaling = create_angular_area_scaling(np.array([0.5, 1.5])*u.deg, 2*u.deg)
-    assert scaling[0.5] == 4.
-
 def test_template_read():
     # Now lets check out our reading Chain
 
@@ -42,8 +18,8 @@ def test_template_read():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Read in the file
-    amp, raw_x, raw_y = fitter.read_templates(data_dir)
-
+    fitter.read_templates(data_dir)
+    amp, raw_x, raw_y = fitter.templates, fitter.templates_xb, fitter.templates_yb
     # First check our output is empty
     assert amp.keys() is not None
 
@@ -71,16 +47,17 @@ def test_template_fitting():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Read in the file
-    amp, raw_x, raw_y = fitter.read_templates(data_dir)
+    fitter.read_templates(data_dir)
+    amp, raw_x, raw_y = fitter.templates, fitter.templates_xb, fitter.templates_yb
+
     test_template = (0., 0., 1., 0., 50., 0.)
 
-    template, var_template = fitter.fit_templates(
+    template = fitter.fit_templates(
         {test_template: amp[test_template]},
         {test_template: raw_x[test_template]},
-        {test_template: raw_y[test_template]}, True, 1000)
+        {test_template: raw_y[test_template]})
 
     assert template is not None
-    assert var_template is not None
 
     x = np.linspace(fitter.bounds[0][0], fitter.bounds[0][1], fitter.bins[0])
     y = np.linspace(fitter.bounds[1][0], fitter.bounds[1][1], fitter.bins[1])
@@ -126,34 +103,23 @@ def test_full_fit():
     data_dir += "/gamma_HESS_example.simhess.gz"
 
     # Run full template generation
-    template, var_template, missed_fraction = fitter.generate_templates([data_dir], "./test.template.gz",
-                                                       "./test_var.template.gz", "./test_fraction.template.gz", True, max_events=10)
-
-    # Make sure we get something out
-    assert template is not None
-    assert var_template is not None
+    fitter.generate_templates([data_dir], "./test.template.gz", "./test_fraction.template.gz", "./test_time_slope.template.gz", max_events=10)
 
     import os.path
     os.path.isfile("./test.template.gz")
-    os.path.isfile("./test_var.template.gz")
+    os.path.isfile("./test_time_slope.template.gz")
     os.path.isfile("./test_fraction.template.gz")
 
     # Open our output files
     import pickle, gzip
     template_fromfile = pickle.load(gzip.open("./test.template.gz","r"))
     fraction_fromfile = pickle.load(gzip.open("./test_fraction.template.gz","r"))
-
-    import matplotlib.pyplot as plt
-    # And check the contents are the same
-    for key in template:
-        assert template[key].all() == template_fromfile[key].all()
-    for key in missed_fraction:
-        assert missed_fraction[key] == fraction_fromfile[key]
+    time_slope_fromfile = pickle.load(gzip.open("./test_time_slope.template.gz","r"))
 
     os.remove("./test.template.gz")
-    os.remove("./test_var.template.gz")
+    os.remove("./test_time_slope.template.gz")
     os.remove("./test_fraction.template.gz")
 
-#test_angular_scaling()
+#test_template_read()
 #test_template_fitting()
-test_full_fit()
+#test_full_fit()
