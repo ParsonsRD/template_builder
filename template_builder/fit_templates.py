@@ -433,13 +433,11 @@ class TemplateFitter:
     def save_time_slope(self, output_file):
 
         output_dict = {}
-        output_dict_unncert = {}
 
         for key in tqdm(list(self.time_slope.keys())):
             time_slope_list = self.time_slope[key]
             if len(time_slope_list) >9:
-                output_dict[key] = scipy.stats.trim_mean(time_slope_list)
-                output_dict_unncert[key] = scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)
+                output_dict[key] = np.array((scipy.stats.trim_mean(time_slope_list),  scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)))
 
         file_handler = gzip.open(output_file, "wb")
         pickle.dump(output_dict, file_handler)
