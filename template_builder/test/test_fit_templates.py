@@ -1,4 +1,4 @@
-from template_builder.fit_templates import TemplateFitter, find_nearest_bin
+from template_builder.nn_fitter import NNFitter, find_nearest_bin
 import numpy as np
 import pkg_resources
 from template_builder.utilities import *
@@ -9,7 +9,7 @@ def test_template_read():
     # Now lets check out our reading Chain
 
     # Create our fitter object
-    fitter = TemplateFitter()
+    fitter = NNFitter()
 
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
@@ -40,7 +40,7 @@ def test_template_fitting():
     # Now lets check out our reading Chain
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=0)
+    fitter = NNFitter(min_fit_pixels=0)
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
@@ -59,17 +59,11 @@ def test_template_fitting():
 
     assert template is not None
 
-    x = np.linspace(fitter.bounds[0][0], fitter.bounds[0][1], fitter.bins[0])
-    y = np.linspace(fitter.bounds[1][0], fitter.bounds[1][1], fitter.bins[1])
-
     # Make sure the template is the expected shape
     assert template[test_template].shape[0] == fitter.bins[1]
     assert template[test_template].shape[1] == fitter.bins[0]
 
-        #assert var_template[test_template].shape[0] == fitter.bins[1]
-        #assert var_template[test_template].shape[1] == fitter.bins[0]
-
-        # For now we will assume the fit just works
+    # For now we will assume the fit just works
 
     # Finally we will check that the range extension functions work
     extended_template = extend_xmax_range(fitter.xmax_bins, template)
@@ -96,7 +90,7 @@ def test_full_fit():
     # Finally check everything
 
     # Create our fitter object
-    fitter = TemplateFitter(min_fit_pixels=300, verbose=False)
+    fitter = NNFitter(min_fit_pixels=300, verbose=False)
     # Get our example data file (10 events of 1 TeV at 0 Alt, 0 Az)
     data_dir = pkg_resources.resource_filename('template_builder', 'data/')
     # Which needs to actually be there
