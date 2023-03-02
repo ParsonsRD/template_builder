@@ -89,3 +89,10 @@ data/test.template.gz
 test_var.template.gz
 test.template.gz
 test_fraction.template.gz
+Template_corrected.templates.gz
+Template_fraction.templates.gz
+Template_time.templates.gz
+template-fitter.provenance.log
+Template.templates.gz
+template_builder/data/gamma_HESS_example2.simhess.gz
+coverage.xml
