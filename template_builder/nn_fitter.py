@@ -59,9 +59,7 @@ class NNFitter(Component):
 
         # Create output dictionary
         templates_out = dict()
-        variance_templates_out = dict()
 
-        print(self.bounds, self.bins)
         # Create grid over which to evaluate our fit
         x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
@@ -70,7 +68,6 @@ class NNFitter(Component):
         for key in tqdm(list(amplitude.keys())):
 
             amp = np.array(amplitude[key])
-            print("Fitting Template key:", key)
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
                 continue
@@ -138,7 +135,7 @@ class NNFitter(Component):
         stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                     min_delta=0.0,
                                                     patience=20,
-                                                    verbose=2, mode='auto')
+                                                    verbose=0, mode='auto')
         
         
         model.fit(pixel_pos, amp, epochs=10000,
@@ -237,8 +234,7 @@ class NNFitter(Component):
         :return: dict
             Dictionary of image templates
 
-        """
-
+        """       
         templates = self.fit_templates(x, y, amplitude)
         file_handler = gzip.open(output_file+".templates.gz", "wb")
         pickle.dump(templates, file_handler)
@@ -318,7 +314,7 @@ class NNFitter(Component):
                     pred_vals = np.concatenate((pred_vals, prediction))
 
             except KeyError:
-                print(key, "Key missing in template")
+                True
         
         # Define the Poissonian fit function used to fit datas
         def scale_like(scale_factor):

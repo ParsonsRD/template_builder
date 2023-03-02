@@ -171,7 +171,7 @@ class TemplateFitter(Tool):
                 self.event_source,
                 desc=self.event_source.__class__.__name__,
                 total=self.event_source.max_events,
-                unit="ev"
+                unit="events"
                 ):
 
                 self.log.debug("Processessing event_id=%s", event.index.event_id)
@@ -253,7 +253,6 @@ class TemplateFitter(Tool):
             #  Get pixel signal
             if np.all(self.check_parameters(parameters=dl1.parameters)) is False:
                 continue
-            print()
 
             pmt_signal = dl1.image
 
