@@ -15,7 +15,7 @@ from ctapipe.core import QualityQuery, Tool
 from ctapipe.core.traits import List, classes_with_traits, Unicode
 from ctapipe.image import ImageCleaner, ImageModifier, ImageProcessor
 from ctapipe.image.extractor import ImageExtractor
-from ctapipe.reco.reco_algorithms import StereoQualityQuery
+from ctapipe.reco.reconstructor import StereoQualityQuery
 
 from ctapipe.io import (
     DataLevel,
@@ -32,10 +32,6 @@ from ctapipe.coordinates import (
 
 from ctapipe.utils import EventTypeFilter
 from ctapipe.image import dilate
-from ctapipe.reco.impact_utilities import (
-    guess_shower_depth,
-    rotate_translate,
-)
 from astropy.time import Time
 
 from template_builder.nn_fitter import NNFitter
@@ -60,9 +56,9 @@ class TemplateFitter(Tool):
     name = "template-fitter"
     examples = """
     To process data with all default values:
-    > ctapipe-process --input events.simtel.gz --output events.dl1.h5 --progress
+    > template-fitter --input events.simtel.gz --output events.dl1.h5 --progress
     Or use an external configuration file, where you can specify all options:
-    > ctapipe-process --config stage1_config.json --progress
+    > template-fitter --config stage1_config.json --progress
     The config file should be in JSON or python format (see traitlets docs). For an
     example, see ctapipe/examples/stage1_config.json in the main code repo.
     """
@@ -281,14 +277,12 @@ class TemplateFitter(Tool):
                 to(u.m).value
             
             mask = event.dl1.tel[tel_id].image_mask
-
             # now rotate and translate our images such that they lie on top of one
             # another
-            x, y = rotate_translate(x.reshape((1, x.shape[0])), y.reshape((1, y.shape[0])),
+            x, y = rotate_translate(x, y,
                                     source_direction.fov_lon,
                                     source_direction.fov_lat,
-                                    phi * np.ones(1))
-
+                                    phi)
             x *= -1 # Reverse x axis to fit HESS convention
             x, y = x.ravel(), y.ravel()
     
@@ -305,7 +299,7 @@ class TemplateFitter(Tool):
             mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
             # Calc difference from expected Xmax (for gammas)
-            exp_xmax = guess_shower_depth(energy.value)#xmax_expectation(energy.value)
+            exp_xmax = xmax_expectation(energy.value)
             x_diff = mc_xmax - exp_xmax
             x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
@@ -318,14 +312,14 @@ class TemplateFitter(Tool):
             if (key) in self.templates.keys():
                 # Extend the list if an entry already exists
                 self.templates[key].extend(image)
-                self.templates_xb[key].extend(x)
-                self.templates_yb[key].extend(y)
+                self.templates_xb[key].extend(x.value.tolist())
+                self.templates_yb[key].extend(y.value.tolist())
                 self.count[key] = self.count[key] + (1  * self.xmax_scale[(x_diff_bin, offset_bin)])
                 self.time_slope[key].append(time_slope)
             else:
                 self.templates[key] = image.tolist()
-                self.templates_xb[key] = x.tolist()#.value#.tolist()
-                self.templates_yb[key] = y.tolist()#.value#.tolist()
+                self.templates_xb[key] = x.value.tolist()#.value#.tolist()
+                self.templates_yb[key] = y.value.tolist()#.value#.tolist()
                 self.count[key] = 1 * self.xmax_scale[(x_diff_bin, offset_bin)]
                 self.time_slope[key] = [time_slope]
 

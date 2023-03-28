@@ -60,10 +60,6 @@ class NNFitter(Component):
         # Create output dictionary
         templates_out = dict()
 
-        # Create grid over which to evaluate our fit
-        x = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
-        y = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-
         # Loop over all templates
         for key in tqdm(list(amplitude.keys())):
 

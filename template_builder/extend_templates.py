@@ -89,7 +89,7 @@ def extend_distance_range(xmax_bins, templates, additional_bins=4):
                         distance_list = list()
 
                         # If we have no template at 0 copy the lowest value
-                        if distances[0] is not 0.:
+                        if distances[0] != 0.:
                             copied = False
                             for d in distances:
                                 key = (zen, az, en, d, xmax, off)

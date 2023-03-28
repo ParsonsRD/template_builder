@@ -6,7 +6,8 @@ from astropy.coordinates import SkyCoord, AltAz
 from astropy.time import Time
 
 __all__ = ["find_nearest_bin", "create_angular_area_scaling", "poisson_likelihood_gaussian",
-           "tensor_poisson_likelihood", "create_xmax_scaling", "xmax_expectation"]
+           "tensor_poisson_likelihood", "create_xmax_scaling", "xmax_expectation", "rotate_translate"]
+
 
 def find_nearest_bin(array, value):
     """
@@ -22,6 +23,39 @@ def find_nearest_bin(array, value):
 
     idx = (np.abs(array - value)).argmin()
     return array[idx]
+
+def rotate_translate(pixel_pos_x, pixel_pos_y, x_trans, y_trans, phi):
+    """
+    Function to perform rotation and translation of pixel lists
+    Parameters
+    ----------
+    pixel_pos_x: ndarray
+        Array of pixel x positions
+    pixel_pos_y: ndarray
+        Array of pixel x positions
+    x_trans: float
+        Translation of position in x coordinates
+    y_trans: float
+        Translation of position in y coordinates
+    phi: float
+        Rotation angle of pixels
+    Returns
+    -------
+        ndarray,ndarray: Transformed pixel x and y coordinates
+    """
+
+    cosine_angle = np.cos(phi[..., np.newaxis])
+    sin_angle = np.sin(phi[..., np.newaxis])
+
+    pixel_pos_trans_x = (x_trans - pixel_pos_x) * cosine_angle - (
+        y_trans - pixel_pos_y
+    ) * sin_angle
+
+    pixel_pos_trans_y = (pixel_pos_x - x_trans) * sin_angle + (
+        pixel_pos_y - y_trans
+    ) * cosine_angle
+    
+    return pixel_pos_trans_x, pixel_pos_trans_y
 
 def xmax_expectation(energy):
     return 300 + 93 * np.log10(energy)
