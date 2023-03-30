@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 import yaml
 from template_builder.corsika_input import CORSIKAInput
 from template_builder.simtelarray_config import SimTelArrayConfig, get_run_script
-from template_builder.fit_templates import TemplateFitter
+from template_builder.nn_fitter import TemplateFitter
 from template_builder.extend_templates import *
 
 import astropy.units as u

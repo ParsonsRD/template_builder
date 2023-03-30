@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='template_builder',
-    version='1.0',
+    version='2.0',
     packages=['template_builder'],
     package_dir={'template_builder': 'template_builder'},
     package_data={'template_builder': ["configs/array_trigger_temp.dat",
@@ -16,4 +16,5 @@ setup(
     author='parsonsrd',
     author_email='',
     description='Creation tools for building ImPACT templates for ctapipe',
+    entry_points = {'console_scripts': ['template-fitter = template_builder.template_fitter:main']},
 )
