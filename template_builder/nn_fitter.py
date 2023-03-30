@@ -148,7 +148,7 @@ class NNFitter(Component):
         model.fit(pixel_pos, amp, epochs=10000,
                     batch_size=50000,
                     callbacks=[stopping], validation_split=0.1, verbose=0)
-        model_pred = model.predict(grid.T)
+        model_pred = model.predict(grid.T, verbose=0)
 
         # Set everything outside the range of our points to zero
         # This is a bit of a hacky way of doing this, but is fast and works
@@ -157,62 +157,6 @@ class NNFitter(Component):
         model_pred[lin_nan] = 0
 
         return model_pred.reshape((self.bins[1], self.bins[0]))
-
-    def save_templates(self, output_file):
-        """ Save templates to file
-        
-        :param output_file: str
-               Output file name
-        :return: dict
-            Dictionary of image templates
-        """
-        file_templates = self.fit_templates(self.templates, self.templates_xb, self.templates_yb)
-
-        file_handler = gzip.open(output_file, "wb")
-        pickle.dump(file_templates, file_handler)
-        file_handler.close()
-
-        return file_templates
-
-    def save_time_slope(self, output_file):
-        """ Save time slope templates to file
-
-        :param output_file: str
-                Output file name
-        :return: dict
-            Dictionary of time slope templates
-        """
-        output_dict = {}
-
-        for key in tqdm(list(self.time_slope.keys())):
-            time_slope_list = self.time_slope[key]
-            if len(time_slope_list) >9:
-                output_dict[key] = np.array((scipy.stats.trim_mean(time_slope_list, 0.01),  
-                                             scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)))
-
-        file_handler = gzip.open(output_file, "wb")
-        pickle.dump(output_dict, file_handler)
-        file_handler.close()
-
-        return output_dict
-
-    def save_fraction(self, output_file):
-        """ Save fraction templates to file
-
-        :param output_file: str
-                Output file name
-        :return: dict
-            Dictionary of fraction templates
-        """
-        output_dict = {}
-        for key in self.count.keys():
-            output_dict[key] = (self.count[key]/self.count_total)
-
-        file_handler = gzip.open(output_file, "wb")
-        pickle.dump(output_dict, file_handler)
-        file_handler.close()
-
-        return output_dict
 
     def generate_templates(self, x, y, amplitude, time, count, total, output_file="./Template"):
         """
@@ -232,13 +176,15 @@ class NNFitter(Component):
 
         """       
         templates = self.fit_templates(x, y, amplitude)
-        file_handler = gzip.open(output_file+".templates.gz", "wb")
+        file_handler = gzip.open(output_file+".template.gz", "wb")
         pickle.dump(templates, file_handler)
         file_handler.close()
 
-        corrected_templates = self.calculate_correction_factors(x, y, amplitude, templates)
-        file_handler = gzip.open(output_file+"_corrected.templates.gz", "wb")
-        pickle.dump(corrected_templates, file_handler)
+        correction_factor = self.calculate_correction_factors(x, y, amplitude, templates)
+        for t in templates:
+            templates[t] = templates[t] * correction_factor
+        file_handler = gzip.open(output_file+"_corrected.template.gz", "wb")
+        pickle.dump(templates, file_handler)
         file_handler.close()
 
         time_slope = {}
@@ -247,15 +193,16 @@ class NNFitter(Component):
             if len(time_slope_list) >5:
                 time_slope[key] = np.array((scipy.stats.trim_mean(time_slope_list, 0.01),  
                                              scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)))
-        file_handler = gzip.open(output_file+"_time.templates.gz", "wb")
+
+        file_handler = gzip.open(output_file+"_time.template.gz", "wb")
         pickle.dump(time_slope, file_handler)
         file_handler.close()
 
         fraction = {}
         for key in count.keys():
             fraction[key] = (count[key]/total)
-        file_handler = gzip.open(output_file+"_fraction.templates.gz", "wb")
-        pickle.dump(time_slope, file_handler)
+        file_handler = gzip.open(output_file+"_fraction.template.gz", "wb")
+        pickle.dump(fraction, file_handler)
         file_handler.close()
 
         return True

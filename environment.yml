@@ -24,8 +24,8 @@ dependencies:
   - pip
   - pip:
     - git+https://github.com/ParsonsRD/submit_SGE.git
-    - loess
     - sphinx-rtd-theme
     - tensorflow
     - keras
     - KDEpy
+    - art

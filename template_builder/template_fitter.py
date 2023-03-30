@@ -44,6 +44,8 @@ COMPATIBLE_DATALEVELS = [
     DataLevel.DL1_IMAGES,
 ]
 
+from art import tprint
+
 __all__ = ["ProcessorTool"]
 
 
@@ -65,6 +67,10 @@ class TemplateFitter(Tool):
 
     input_files = Unicode(
         default_value=".", help="list of input files"
+    ).tag(config=True)
+
+    output_file = Unicode(
+        default_value=".", help="base output file name"
     ).tag(config=True)
 
     xmax_bins = List(
@@ -109,7 +115,16 @@ class TemplateFitter(Tool):
         # setup components:
         self.input_file_list = self.input_files.split(",")
 
-        self.event_source = EventSource(input_url=self.input_file_list[0], parent=self)
+        self.focal_length_choice='EFFECTIVE'
+        try:
+            self.event_source = EventSource(input_url=self.input_file_list[0], parent=self, 
+                    focal_length_choice=self.focal_length_choice)
+        except RuntimeError:
+            print("Effective Focal length not availible, defaulting to equivelent")
+            self.focal_length_choice='EQUIVALENT'
+            self.event_source = EventSource(input_url=self.input_file_list[0], parent=self, 
+                    focal_length_choice=self.focal_length_choice)
+
         if not self.event_source.has_any_datalevel(COMPATIBLE_DATALEVELS):
             self.log.critical(
                 "%s  needs the EventSource to provide either R1 or DL0 or DL1A data"
@@ -160,7 +175,8 @@ class TemplateFitter(Tool):
         self.event_source.subarray.info(printer=self.log.info)
 
         for input_file in self.input_file_list:
-            self.event_source = EventSource(input_url=input_file, parent=self)
+            self.event_source = EventSource(input_url=input_file, parent=self, 
+                focal_length_choice=self.focal_length_choice)
             self.point, self.xmax_scale, self.tilt_tel = None, None, None
 
             for event in tqdm(
@@ -187,7 +203,8 @@ class TemplateFitter(Tool):
         Last steps after processing events.
         """
         self.fitter.generate_templates(self.templates_xb, self.templates_yb, self.templates,
-                                    self.time_slope, self.count, self.count_total)
+                                    self.time_slope, self.count, self.count_total, 
+                                    output_file=self.output_file)
 
     def read_template(self, event):
         """_summary_
@@ -326,6 +343,10 @@ class TemplateFitter(Tool):
 
 def main():
     """run the tool"""
+    print("=======================================================================================")
+    tprint("Template   Fitter")
+    print("=======================================================================================")
+
     tool = TemplateFitter()
     tool.run()
 
