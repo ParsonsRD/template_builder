@@ -85,6 +85,7 @@ class TemplateFitter(Tool):
 
     aliases = {
         ("i", "input"): "TemplateFitter.input_files",
+        ("o", "output"): "TemplateFitter.output_file",
         ("t", "allowed-tels"): "EventSource.allowed_tels",
         ("m", "max-events"): "EventSource.max_events",
         "image-cleaner-type": "ImageProcessor.image_cleaner_type",

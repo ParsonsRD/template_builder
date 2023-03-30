@@ -154,7 +154,3 @@ def test_full_fit():
     os.remove("./test_corrected.template.gz")
     os.remove("./test_time.template.gz")
     os.remove("./test_fraction.template.gz")
-
-#test_template_read()
-#test_template_fitting()
-test_full_fit()
