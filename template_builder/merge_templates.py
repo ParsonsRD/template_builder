@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import gzip
 import pickle
+import warnings
 
 
 class TemplateMerger(Tool):
@@ -73,14 +74,16 @@ class TemplateMerger(Tool):
             for key, value in this_dict.items():
                 # We need to make sure that we have a unique template for every key.
                 # It is at this stage not obvious how to combine two templates for the same key into one.
-                # Therefore, we throw an error as soon as a key that already exists is accessed again.
-                assert (
-                    key not in self.full_template_dict.keys()
-                ), "The key {} is already in the merged template dictionary.".format(
-                    key
-                )
-                # Write the dictionary to the common dictionary.
-                self.full_template_dict[key] = value
+                # Therefore, we throw a warning as soon as a key that already exists is accessed again.
+                if key not in self.full_template_dict.keys():
+                    # Write the dictionary to the common dictionary.
+                    self.full_template_dict[key] = value
+                else:
+                    warnings.warn(
+                        "The key {} is already in the merged template dictionary.".format(
+                            key
+                        )
+                    )
 
     def finish(self):
         # Save the combined template
