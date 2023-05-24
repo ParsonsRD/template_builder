@@ -339,7 +339,7 @@ class TemplateFitter(Tool):
 
             # Get pixel coordinates and convert to the nominal system
             geom = self.event_source.subarray.tel[tel_id].camera.geometry
-            fl = self.event_source.subarray.tel[tel_id].optics.equivalent_focal_length
+            fl = geom.frame.focal_length.to(u.m)
 
             camera_coord = SkyCoord(
                 x=geom.pix_x,
