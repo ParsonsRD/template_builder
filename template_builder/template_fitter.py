@@ -10,8 +10,11 @@ from astropy.coordinates import SkyCoord, AltAz
 import astropy.units as u
 import numpy as np
 
+from argparse import ArgumentParser
+from pathlib import Path
+
 from ctapipe.calib import CameraCalibrator, GainSelector
-from ctapipe.core import QualityQuery, Tool
+from ctapipe.core import QualityQuery, Tool, traits
 from ctapipe.core.traits import List, classes_with_traits, Unicode
 from ctapipe.image import ImageCleaner, ImageModifier, ImageProcessor
 from ctapipe.image.extractor import ImageExtractor
@@ -24,9 +27,9 @@ from ctapipe.io import (
     metadata,
 )
 from ctapipe.coordinates import (
-    CameraFrame, 
-    NominalFrame, 
-    GroundFrame, 
+    CameraFrame,
+    NominalFrame,
+    GroundFrame,
     TiltedGroundFrame,
 )
 
@@ -65,22 +68,41 @@ class TemplateFitter(Tool):
     example, see ctapipe/examples/stage1_config.json in the main code repo.
     """
 
-    input_files = Unicode(
-        default_value=".", help="list of input files"
+    input_dir = traits.Path(
+        default_value=None,
+        help="Input directory",
+        allow_none=True,
+        exists=True,
+        directory_ok=True,
+        file_ok=False,
     ).tag(config=True)
 
-    output_file = Unicode(
-        default_value=".", help="base output file name"
+    input_files = List(
+        traits.Path(exists=True, directory_ok=False),
+        default_value=[],
+        help="Input sim_telarray simulation files",
     ).tag(config=True)
+
+    file_pattern = Unicode(
+        default_value="*.simtel.zst",
+        help="Give a specific file pattern for matching files in ``input_dir``",
+    ).tag(config=True)
+
+    parser = ArgumentParser()
+    parser.add_argument("input_files", nargs="*", type=Path)
+
+    output_file = Unicode(default_value=".", help="base output file name").tag(
+        config=True
+    )
 
     xmax_bins = List(
-        default_value = np.linspace(-150, 200, 15).tolist(),
-        help = "bin centres for xmax bins",
+        default_value=np.linspace(-150, 200, 15).tolist(),
+        help="bin centres for xmax bins",
     ).tag(config=True)
 
     offset_bins = List(
-        default_value = [0.0],
-        help = "bin centres for offset bins (deg)",
+        default_value=[0.0],
+        help="bin centres for offset bins (deg)",
     ).tag(config=True)
 
     aliases = {
@@ -107,24 +129,38 @@ class TemplateFitter(Tool):
         + classes_with_traits(ImageModifier)
         + classes_with_traits(EventTypeFilter)
         + classes_with_traits(NNFitter)
-
     )
-
 
     def setup(self):
 
         # setup components:
-        self.input_file_list = self.input_files.split(",")
+        args = self.parser.parse_args(self.extra_args)
+        self.input_files.extend(args.input_files)
+        if self.input_dir is not None:
+            self.input_files.extend(sorted(self.input_dir.glob(self.file_pattern)))
 
-        self.focal_length_choice='EFFECTIVE'
+        if not self.input_files:
+            self.log.critical(
+                "No input files provided, either provide --input-dir "
+                "or input files as positional arguments"
+            )
+            sys.exit(1)
+
+        self.focal_length_choice = "EFFECTIVE"
         try:
-            self.event_source = EventSource(input_url=self.input_file_list[0], parent=self, 
-                    focal_length_choice=self.focal_length_choice)
+            self.event_source = EventSource(
+                input_url=self.input_files[0],
+                parent=self,
+                focal_length_choice=self.focal_length_choice,
+            )
         except RuntimeError:
             print("Effective Focal length not availible, defaulting to equivelent")
-            self.focal_length_choice='EQUIVALENT'
-            self.event_source = EventSource(input_url=self.input_file_list[0], parent=self, 
-                    focal_length_choice=self.focal_length_choice)
+            self.focal_length_choice = "EQUIVALENT"
+            self.event_source = EventSource(
+                input_url=self.input_files[0],
+                parent=self,
+                focal_length_choice=self.focal_length_choice,
+            )
 
         if not self.event_source.has_any_datalevel(COMPATIBLE_DATALEVELS):
             self.log.critical(
@@ -143,8 +179,8 @@ class TemplateFitter(Tool):
             subarray=self.event_source.subarray, parent=self
         )
         self.event_type_filter = EventTypeFilter(parent=self)
-        self.check_parameters = StereoQualityQuery(parent=self) 
-        
+        self.check_parameters = StereoQualityQuery(parent=self)
+
         # warn if max_events prevents writing the histograms
         if (
             isinstance(self.event_source, SimTelEventSource)
@@ -157,15 +193,15 @@ class TemplateFitter(Tool):
                 "shower distributions read from the input Simulation file are invalid)."
             )
 
-        self.fitter = NNFitter()
+        self.fitter = NNFitter(parent=self)
 
         # We need this dummy time for coord conversions later
-        self.dummy_time = Time('2010-01-01T00:00:00', format='isot', scale='utc')
+        self.dummy_time = Time("2010-01-01T00:00:00", format="isot", scale="utc")
         self.point, self.xmax_scale, self.tilt_tel = None, None, None
 
         self.time_slope, self.templates = {}, {}  # Pixel amplitude
-        self.templates_xb, self.templates_yb = {}, {} # Rotated Y positions
-        self.count = {} # Count of events in a given template
+        self.templates_xb, self.templates_yb = {}, {}  # Rotated Y positions
+        self.count = {}  # Count of events in a given template
         self.count_total = 0
 
     def start(self):
@@ -175,37 +211,48 @@ class TemplateFitter(Tool):
 
         self.event_source.subarray.info(printer=self.log.info)
 
-        for input_file in self.input_file_list:
-            self.event_source = EventSource(input_url=input_file, parent=self, 
-                focal_length_choice=self.focal_length_choice)
+        for input_file in self.input_files:
+            self.event_source = EventSource(
+                input_url=input_file,
+                parent=self,
+                focal_length_choice=self.focal_length_choice,
+            )
             self.point, self.xmax_scale, self.tilt_tel = None, None, None
 
             for event in tqdm(
                 self.event_source,
                 desc=self.event_source.__class__.__name__,
                 total=self.event_source.max_events,
-                unit="events"
-                ):
+                unit="events",
+            ):
 
                 self.log.debug("Processessing event_id=%s", event.index.event_id)
                 self.calibrate(event)
                 self.process_images(event)
 
                 self.read_template(event)
-            
+
             # Not sure what else to do here...
             obs_ids = self.event_source.simulation_config.keys()
             for obs_id in obs_ids:
-                self.count_total += self.event_source.simulation_config[obs_id].n_showers
+                self.count_total += self.event_source.simulation_config[
+                    obs_id
+                ].n_showers
             self.event_source.close()
 
     def finish(self):
         """
         Last steps after processing events.
         """
-        self.fitter.generate_templates(self.templates_xb, self.templates_yb, self.templates,
-                                    self.time_slope, self.count, self.count_total, 
-                                    output_file=self.output_file)
+        self.fitter.generate_templates(
+            self.templates_xb,
+            self.templates_yb,
+            self.templates,
+            self.time_slope,
+            self.count,
+            self.count_total,
+            output_file=self.output_file,
+        )
 
     def read_template(self, event):
         """_summary_
@@ -218,49 +265,69 @@ class TemplateFitter(Tool):
         # above 90 deg
         alt_evt = event.simulation.shower.alt
         if alt_evt > 90 * u.deg:
-            alt_evt = 90*u.deg
+            alt_evt = 90 * u.deg
 
         # Get the pointing direction and telescope positions of this run
         if self.point is None:
             alt = event.pointing.array_altitude
             if alt > 90 * u.deg:
-                alt = 90*u.deg
+                alt = 90 * u.deg
 
-            self.point = SkyCoord(alt=alt, az=event.pointing.array_azimuth,
-                    frame=AltAz(obstime=self.dummy_time))
-            self.xmax_scale = create_xmax_scaling(self.xmax_bins, np.array(self.offset_bins)*u.deg, \
-                    self.point, self.event_source.input_url)
+            self.point = SkyCoord(
+                alt=alt,
+                az=event.pointing.array_azimuth,
+                frame=AltAz(obstime=self.dummy_time),
+            )
+            self.xmax_scale = create_xmax_scaling(
+                self.xmax_bins,
+                np.array(self.offset_bins) * u.deg,
+                self.point,
+                self.event_source.input_url,
+            )
 
             grd_tel = self.event_source.subarray.tel_coords
             # Convert to tilted system
             self.tilt_tel = grd_tel.transform_to(
-                TiltedGroundFrame(pointing_direction=self.point))
+                TiltedGroundFrame(pointing_direction=self.point)
+            )
 
         # Create coordinate objects for source position
-        src = SkyCoord(alt=event.simulation.shower.alt.value * u.rad, 
-                        az=event.simulation.shower.az.value * u.rad,
-                        frame=AltAz(obstime=self.dummy_time))
+        src = SkyCoord(
+            alt=event.simulation.shower.alt.value * u.rad,
+            az=event.simulation.shower.az.value * u.rad,
+            frame=AltAz(obstime=self.dummy_time),
+        )
 
-
-        offset_bin = find_nearest_bin(np.array(self.offset_bins)*u.deg, self.point.separation(src)).value
+        offset_bin = find_nearest_bin(
+            np.array(self.offset_bins) * u.deg, self.point.separation(src)
+        ).value
 
         zen = 90 - event.simulation.shower.alt.to(u.deg).value
         # Store simulated Xmax
         mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
 
-        # And transform into nominal system (where we store our templates)
-        source_direction = src.transform_to(NominalFrame(origin=self.point))
-
         # Store simulated event energy
         energy = event.simulation.shower.energy
 
-        # Calculate core position in tilted system
-        grd_core_true = SkyCoord(x=np.asarray(event.simulation.shower.core_x) * u.m,
-                                    y=np.asarray(event.simulation.shower.core_y) * u.m,
-                                    z=np.asarray(0) * u.m, frame=GroundFrame())
+        # Calc difference from expected Xmax (for gammas)
+        exp_xmax = xmax_expectation(energy.value)
+        x_diff = mc_xmax - exp_xmax
+        x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
 
-        tilt_core_true = grd_core_true.transform_to(TiltedGroundFrame(
-            pointing_direction=self.point))
+        # And transform into nominal system (where we store our templates)
+        source_direction = src.transform_to(NominalFrame(origin=self.point))
+
+        # Calculate core position in tilted system
+        grd_core_true = SkyCoord(
+            x=np.asarray(event.simulation.shower.core_x) * u.m,
+            y=np.asarray(event.simulation.shower.core_y) * u.m,
+            z=np.asarray(0) * u.m,
+            frame=GroundFrame(),
+        )
+
+        tilt_core_true = grd_core_true.transform_to(
+            TiltedGroundFrame(pointing_direction=self.point)
+        )
 
         # Loop over triggered telescopes
         for tel_id, dl1 in event.dl1.tel.items():
@@ -272,38 +339,46 @@ class TemplateFitter(Tool):
 
             # Get pixel coordinates and convert to the nominal system
             geom = self.event_source.subarray.tel[tel_id].camera.geometry
-            fl = self.event_source.subarray.tel[tel_id].optics.equivalent_focal_length
+            fl = geom.frame.focal_length.to(u.m)
 
-            camera_coord = SkyCoord(x=geom.pix_x, y=geom.pix_y,
-                                    frame=CameraFrame(focal_length=fl,
-                                                        telescope_pointing=self.point))
+            camera_coord = SkyCoord(
+                x=geom.pix_x,
+                y=geom.pix_y,
+                frame=CameraFrame(focal_length=fl, telescope_pointing=self.point),
+            )
 
-            nom_coord = camera_coord.transform_to(
-                NominalFrame(origin=self.point))
+            nom_coord = camera_coord.transform_to(NominalFrame(origin=self.point))
 
             x = nom_coord.fov_lon.to(u.deg)
             y = nom_coord.fov_lat.to(u.deg)
 
             # Calculate expected rotation angle of the image
-            phi = np.arctan2((self.tilt_tel.y[tel_id - 1] - tilt_core_true.y),
-                                (self.tilt_tel.x[tel_id - 1] - tilt_core_true.x)) + \
-                    90 * u.deg
-
+            phi = (
+                np.arctan2(
+                    (self.tilt_tel.y[tel_id - 1] - tilt_core_true.y),
+                    (self.tilt_tel.x[tel_id - 1] - tilt_core_true.x),
+                )
+                + 90 * u.deg
+            )
             # And the impact distance of the shower
-            impact = np.sqrt(np.power(self.tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2) +
-                                np.power(self.tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)). \
-                to(u.m).value
-            
+            impact = (
+                np.sqrt(
+                    np.power(self.tilt_tel.x[tel_id - 1] - tilt_core_true.x, 2)
+                    + np.power(self.tilt_tel.y[tel_id - 1] - tilt_core_true.y, 2)
+                )
+                .to(u.m)
+                .value
+            )
+
             mask = event.dl1.tel[tel_id].image_mask
             # now rotate and translate our images such that they lie on top of one
             # another
-            x, y = rotate_translate(x, y,
-                                    source_direction.fov_lon,
-                                    source_direction.fov_lat,
-                                    phi)
-            x *= -1 # Reverse x axis to fit HESS convention
+            x, y = rotate_translate(
+                x, y, source_direction.fov_lon, source_direction.fov_lat, phi
+            )
+            x *= -1  # Reverse x axis to fit HESS convention
             x, y = x.ravel(), y.ravel()
-    
+
             for i in range(4):
                 mask = dilate(geom, mask)
 
@@ -313,43 +388,42 @@ class TemplateFitter(Tool):
             image = pmt_signal[mask].astype(np.float32)
             time_slope = dl1.parameters.timing.slope.value
 
-            # Store simulated Xmax
-            mc_xmax = event.simulation.shower.x_max.value / np.cos(np.deg2rad(zen))
+            pt_az = self.point.az.to(u.deg).value
+            pt_zen = 90.0 - self.point.alt.to(u.deg).value
 
-            # Calc difference from expected Xmax (for gammas)
-            exp_xmax = xmax_expectation(energy.value)
-            x_diff = mc_xmax - exp_xmax
-            x_diff_bin = find_nearest_bin(self.xmax_bins, x_diff)
-
-            az = self.point.az.to(u.deg).value
-            zen = 90. - self.point.alt.to(u.deg).value
-            
             # Now fill up our output with the X, Y and amplitude of our pixels
-            key = zen, az, energy.value, int(impact), x_diff_bin, offset_bin
+            key = pt_zen, pt_az, energy.value, int(impact), x_diff_bin, offset_bin
 
             if (key) in self.templates.keys():
                 # Extend the list if an entry already exists
                 self.templates[key].extend(image)
                 self.templates_xb[key].extend(x.value.tolist())
                 self.templates_yb[key].extend(y.value.tolist())
-                self.count[key] = self.count[key] + (1  * self.xmax_scale[(x_diff_bin, offset_bin)])
+                self.count[key] = self.count[key] + (
+                    1 * self.xmax_scale[(x_diff_bin, offset_bin)]
+                )
                 self.time_slope[key].append(time_slope)
             else:
                 self.templates[key] = image.tolist()
-                self.templates_xb[key] = x.value.tolist()#.value#.tolist()
-                self.templates_yb[key] = y.value.tolist()#.value#.tolist()
+                self.templates_xb[key] = x.value.tolist()  # .value#.tolist()
+                self.templates_yb[key] = y.value.tolist()  # .value#.tolist()
                 self.count[key] = 1 * self.xmax_scale[(x_diff_bin, offset_bin)]
                 self.time_slope[key] = [time_slope]
 
 
 def main():
     """run the tool"""
-    print("=======================================================================================")
+    print(
+        "======================================================================================="
+    )
     tprint("Template   Fitter")
-    print("=======================================================================================")
+    print(
+        "======================================================================================="
+    )
 
     tool = TemplateFitter()
     tool.run()
+
 
 if __name__ == "__main__":
     main()

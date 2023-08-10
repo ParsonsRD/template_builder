@@ -19,6 +19,7 @@ from template_builder.utilities import *
 from template_builder.extend_templates import *
 from tqdm import tqdm
 
+
 class NNFitter(Component):
 
     bounds = List(
@@ -32,11 +33,12 @@ class NNFitter(Component):
     ).tag(config=True)
 
     min_fit_pixels = Int(
-        default_value = 1000,
+        default_value=1000,
         help="Minimum number of pixels required to fit image",
     ).tag(config=True)
 
-    def __init__(self):
+    def __init__(self, config=None, parent=None):
+        super().__init__(config=config, parent=parent)
         return
 
     def fit_templates(self, x_pos, y_pos, amplitude):
@@ -67,7 +69,7 @@ class NNFitter(Component):
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
                 continue
-                
+
             y = y_pos[key]
             x = x_pos[key]
 
@@ -77,14 +79,13 @@ class NNFitter(Component):
             # Fit with MLP
             template_output = self.perform_fit(amp, pixel_pos)
             templates_out[key] = template_output.astype(np.float32)
-            
-            #if make_variance_template:
-                # need better plan for var templates
+
+            # if make_variance_template:
+            # need better plan for var templates
 
         return templates_out
 
-    def perform_fit(self, amp, pixel_pos, 
-                    nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
+    def perform_fit(self, amp, pixel_pos, nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
         Fit MLP model to individual template pixels
 
@@ -106,7 +107,7 @@ class NNFitter(Component):
         grid = np.vstack((xx.ravel(), yy.ravel()))
 
         # We expect our images to be symmetric around x=0, so we can duplicate and copy
-        # across the values 
+        # across the values
         pixel_pos_neg = np.array([pixel_pos.T[0], -1 * np.abs(pixel_pos.T[1])]).T
         pixel_pos = np.concatenate((pixel_pos, pixel_pos_neg))
         amp = np.concatenate((amp, amp))
@@ -119,35 +120,43 @@ class NNFitter(Component):
         for n in nodes[1:]:
             model.add(Dense(n, activation="relu"))
 
-        model.add(Dense(1, activation='linear'))
+        model.add(Dense(1, activation="linear"))
 
         def poisson_loss(y_true, y_pred):
-            return tensor_poisson_likelihood(y_true, y_pred, 0.5, 1.)
+            return tensor_poisson_likelihood(y_true, y_pred, 0.5, 1.0)
 
         # First we have a go at fitting our model with a mean squared loss
         # this gets us most of the way to the answer and is more stable
-        model.compile(loss="mse",
-                        optimizer="adam", metrics=['accuracy'])
-        stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                    min_delta=0.0,
-                                                    patience=20,
-                                                    verbose=0, mode='auto')
-        
-        
-        model.fit(pixel_pos, amp, epochs=10000,
-                    batch_size=50000,
-                    callbacks=[stopping], validation_split=0.1, verbose=0)
+        model.compile(loss="mse", optimizer="adam", metrics=["accuracy"])
+        stopping = keras.callbacks.EarlyStopping(
+            monitor="val_loss", min_delta=0.0, patience=20, verbose=0, mode="auto"
+        )
+
+        model.fit(
+            pixel_pos,
+            amp,
+            epochs=10000,
+            batch_size=50000,
+            callbacks=[stopping],
+            validation_split=0.1,
+            verbose=0,
+        )
         weights = model.get_weights()
 
         # Then copy over the weights to a new model but with our poisson loss
         # this should get the final normalisation right
-        model.compile(loss=poisson_loss,
-                        optimizer="adam", metrics=['accuracy'])
+        model.compile(loss=poisson_loss, optimizer="adam", metrics=["accuracy"])
         model.set_weights(weights)
-        
-        model.fit(pixel_pos, amp, epochs=10000,
-                    batch_size=50000,
-                    callbacks=[stopping], validation_split=0.1, verbose=0)
+
+        model.fit(
+            pixel_pos,
+            amp,
+            epochs=10000,
+            batch_size=50000,
+            callbacks=[stopping],
+            validation_split=0.1,
+            verbose=0,
+        )
         model_pred = model.predict(grid.T, verbose=0)
 
         # Set everything outside the range of our points to zero
@@ -156,9 +165,11 @@ class NNFitter(Component):
         lin_nan = lin_range(grid.T) == 0
         model_pred[lin_nan] = 0
 
-        return model_pred.reshape((self.bins[1], self.bins[0]))
+        return model_pred.reshape((self.bins[1], self.bins[0])).T
 
-    def generate_templates(self, x, y, amplitude, time, count, total, output_file="./Template"):
+    def generate_templates(
+        self, x, y, amplitude, time, count, total, output_file="./Template"
+    ):
         """
 
         :param file_list: list
@@ -174,48 +185,54 @@ class NNFitter(Component):
         :return: dict
             Dictionary of image templates
 
-        """       
+        """
         templates = self.fit_templates(x, y, amplitude)
-        file_handler = gzip.open(output_file+".template.gz", "wb")
+        file_handler = gzip.open(output_file + ".template.gz", "wb")
         pickle.dump(templates, file_handler)
         file_handler.close()
 
-        correction_factor = self.calculate_correction_factors(x, y, amplitude, templates)
+        correction_factor = self.calculate_correction_factors(
+            x, y, amplitude, templates
+        )
         for t in templates:
             templates[t] = templates[t] * correction_factor
-        file_handler = gzip.open(output_file+"_corrected.template.gz", "wb")
+        file_handler = gzip.open(output_file + "_corrected.template.gz", "wb")
         pickle.dump(templates, file_handler)
         file_handler.close()
 
         time_slope = {}
         for key in tqdm(list(time.keys())):
             time_slope_list = time[key]
-            if len(time_slope_list) >5:
-                time_slope[key] = np.array((scipy.stats.trim_mean(time_slope_list, 0.01),  
-                                             scipy.stats.mstats.trimmed_std(time_slope_list, 0.01)))
+            if len(time_slope_list) > 5:
+                time_slope[key] = np.array(
+                    (
+                        scipy.stats.trim_mean(time_slope_list, 0.01),
+                        scipy.stats.mstats.trimmed_std(time_slope_list, 0.01),
+                    )
+                )
 
-        file_handler = gzip.open(output_file+"_time.template.gz", "wb")
+        file_handler = gzip.open(output_file + "_time.template.gz", "wb")
         pickle.dump(time_slope, file_handler)
         file_handler.close()
 
         fraction = {}
         for key in count.keys():
-            fraction[key] = (count[key]/total)
-        file_handler = gzip.open(output_file+"_fraction.template.gz", "wb")
+            fraction[key] = count[key] / total
+        file_handler = gzip.open(output_file + "_fraction.template.gz", "wb")
         pickle.dump(fraction, file_handler)
         file_handler.close()
 
         return True
 
     def calculate_correction_factors(self, pixel_x, pixel_y, amplitude, templates):
-        """ Funtion for performing a simple correction to the template amplitudes to
+        """Funtion for performing a simple correction to the template amplitudes to
         match the training images. Only needed if significant fit biases are seen
 
         :param file_list: list
             List of sim_telarray input files
         :param template_file: string
             File name of the template file
-        :param max_events: int  
+        :param max_events: int
             Maximum number of events to process
 
         :return: int
@@ -223,14 +240,14 @@ class NNFitter(Component):
         """
         from scipy.interpolate import RegularGridInterpolator
         from scipy.optimize import minimize
-        
+
         # Open up the template file
         keys = amplitude.keys()
 
         # Define our template binning
         x_bins = np.linspace(self.bounds[0][0], self.bounds[0][1], self.bins[0])
         y_bins = np.linspace(self.bounds[1][0], self.bounds[1][1], self.bins[1])
-        
+
         amp_vals = None
         pred_vals = None
 
@@ -242,12 +259,14 @@ class NNFitter(Component):
                 # And the event amplitudes and locations
                 amp, x, y = amplitude[key], pixel_x[key], pixel_y[key]
                 amp = np.array(amp)
-                
+
                 # Create interpolator for our template and predict amplitude
-                interpolator = RegularGridInterpolator((y_bins, x_bins), template, bounds_error=False, fill_value=0)
-                prediction = interpolator((y, x)) 
-                prediction[prediction<1e-6] = 1e-6
-                
+                interpolator = RegularGridInterpolator(
+                    (x_bins, y_bins), template, bounds_error=False, fill_value=0
+                )
+                prediction = interpolator((x, y))
+                prediction[prediction < 1e-6] = 1e-6
+
                 # Store the amplitude and prediction
                 if amp_vals is None:
                     amp_vals = amp
@@ -258,21 +277,25 @@ class NNFitter(Component):
 
             except KeyError:
                 True
-        
+
         # Define the Poissonian fit function used to fit datas
         def scale_like(scale_factor):
             # Reasonable values of single photoelection width and pedestal are used
             # Might need to change for different detector types
-            return np.sum(poisson_likelihood_gaussian(amp_vals, pred_vals*scale_factor[0], 0.5, 1))
+            return np.sum(
+                poisson_likelihood_gaussian(
+                    amp_vals, pred_vals * scale_factor[0], 0.5, 1
+                )
+            )
 
         if amp_vals is None:
             return 1
 
         # Minimise this function to get the scaling factor
-        res = minimize(scale_like, [1.], method='Nelder-Mead')
+        res = minimize(scale_like, [1.0], method="Nelder-Mead")
         # If our fit fails don't scale
         if res.x[0] is None:
             return 1
-        
+
         # Otherwise return scale factor
         return res.x[0]
