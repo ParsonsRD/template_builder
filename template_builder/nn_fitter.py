@@ -262,9 +262,9 @@ class NNFitter(Component):
 
                 # Create interpolator for our template and predict amplitude
                 interpolator = RegularGridInterpolator(
-                    (y_bins, x_bins), template, bounds_error=False, fill_value=0
+                    (x_bins, y_bins), template, bounds_error=False, fill_value=0
                 )
-                prediction = interpolator((y, x))
+                prediction = interpolator((x, y))
                 prediction[prediction < 1e-6] = 1e-6
 
                 # Store the amplitude and prediction
