@@ -6,7 +6,7 @@ channels:
   - conda-forge
 dependencies:
   - astropy
-  - ctapipe==0.19
+  - ctapipe==0.19.3
   - ipython
   - jupyter
   - matplotlib
