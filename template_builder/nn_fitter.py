@@ -21,7 +21,6 @@ from tqdm import tqdm
 
 
 class NNFitter(Component):
-
     bounds = List(
         default_value=[[-5, 1], [-1.5, 1.5]],
         help="X and Y boundaries of template",
@@ -64,7 +63,6 @@ class NNFitter(Component):
 
         # Loop over all templates
         for key in tqdm(list(amplitude.keys())):
-
             amp = np.array(amplitude[key])
             # Skip if we do not have enough image pixels
             if len(amp) < self.min_fit_pixels:
@@ -167,9 +165,7 @@ class NNFitter(Component):
 
         return model_pred.reshape((self.bins[1], self.bins[0])).T
 
-    def generate_templates(
-        self, x, y, amplitude, time, count, total, output_file="./Template"
-    ):
+    def generate_image_templates(self, x, y, amplitude, output_file="./Template"):
         """
 
         :param file_list: list
@@ -198,28 +194,6 @@ class NNFitter(Component):
             templates[t] = templates[t] * correction_factor
         file_handler = gzip.open(output_file + "_corrected.template.gz", "wb")
         pickle.dump(templates, file_handler)
-        file_handler.close()
-
-        time_slope = {}
-        for key in tqdm(list(time.keys())):
-            time_slope_list = time[key]
-            if len(time_slope_list) > 5:
-                time_slope[key] = np.array(
-                    (
-                        scipy.stats.trim_mean(time_slope_list, 0.01),
-                        scipy.stats.mstats.trimmed_std(time_slope_list, 0.01),
-                    )
-                )
-
-        file_handler = gzip.open(output_file + "_time.template.gz", "wb")
-        pickle.dump(time_slope, file_handler)
-        file_handler.close()
-
-        fraction = {}
-        for key in count.keys():
-            fraction[key] = count[key] / total
-        file_handler = gzip.open(output_file + "_fraction.template.gz", "wb")
-        pickle.dump(fraction, file_handler)
         file_handler.close()
 
         return True
