@@ -24,6 +24,8 @@ from ctapipe.image import ImageCleaner, ImageModifier, ImageProcessor
 from ctapipe.image.extractor import ImageExtractor
 from ctapipe.reco.reconstructor import StereoQualityQuery
 
+from ctapipe.fitting import lts_linear_regression
+
 from ctapipe.io import (
     DataLevel,
     EventSource,
@@ -409,11 +411,37 @@ class TemplateFitter(Tool):
                 .value
             )
 
-            if self.image_computation:
-                x, y, image = self.make_image_prediction(tel_id, dl1)
+            if self.image_computation or self.time_computation:
+                x, y = self.get_rotated_translated_pixel_positions(tel_id)
+
+                geom = self.event_source.subarray.tel[tel_id].camera.geometry
+
+                mask = dl1.image_mask
+
+                for _ in range(4):
+                    mask = dilate(geom, mask)
+
+                # Apply mask
+                x = x[mask].astype(np.float32)
+                y = y[mask].astype(np.float32)
+
+                pmt_signal = dl1.image
+                image = pmt_signal[mask].astype(np.float32)
 
             if self.time_computation:
-                time_slope = np.abs(dl1.parameters.timing.slope.value)
+                peak_times = dl1.peak_time[mask]
+
+                time_mask = np.logical_and(peak_times > 0, np.isfinite(peak_times))
+                time_mask = np.logical_and(time_mask, image > 5)
+
+                if np.sum(time_mask) > 3:
+                    time_slope = lts_linear_regression(
+                        x=x[time_mask].to_value(u.deg).astype(np.float64),
+                        y=peak_times[time_mask].astype(np.float64),
+                        samples=3,
+                    )[0][0]
+                else:
+                    time_slope = None
 
             # Now fill up our output with the X, Y and amplitude of our pixels
             key = pt_zen, pt_az, energy.value, int(impact), x_diff_bin, offset_bin
@@ -428,7 +456,7 @@ class TemplateFitter(Tool):
                     self.count[key] = self.count[key] + (
                         1 * self.xmax_scale[(x_diff_bin, offset_bin)]
                     )
-                if self.time_computation:
+                if self.time_computation and time_slope is not None:
                     self.time_slope[key].append(time_slope)
             else:
                 self.key_list.append((key))
@@ -439,22 +467,16 @@ class TemplateFitter(Tool):
                 if self.fraction_computation:
                     self.count[key] = 1 * self.xmax_scale[(x_diff_bin, offset_bin)]
                 if self.time_computation:
-                    self.time_slope[key] = [time_slope]
+                    if time_slope is not None:
+                        self.time_slope[key] = [time_slope]
+                    else:
+                        self.time_slope[key] = []
 
-    def make_image_prediction(self, tel_id, dl1):
-        """
-        Compute rotated pixel positions and image amplitudes for a given telescope
-
-        Returns
-        -------
-        x,y: Rotated pixel coordinates in deg
-        iamge: Pixel amplitudes
-        """
-
-        pmt_signal = dl1.image
-
+    def get_rotated_translated_pixel_positions(self, tel_id):
         # Get pixel coordinates and convert to the nominal system
+
         geom = self.event_source.subarray.tel[tel_id].camera.geometry
+
         fl = geom.frame.focal_length.to(u.m)
 
         camera_coord = SkyCoord(
@@ -477,24 +499,13 @@ class TemplateFitter(Tool):
             + 90 * u.deg
         )
 
-        mask = dl1.image_mask
-        # now rotate and translate our images such that they lie on top of one
-        # another
         x, y = rotate_translate(
             x, y, self.source_direction.fov_lon, self.source_direction.fov_lat, phi
         )
         x *= -1  # Reverse x axis to fit HESS convention
         x, y = x.ravel(), y.ravel()
 
-        for i in range(4):
-            mask = dilate(geom, mask)
-
-        # Make sure everything is 32 bit
-        x = x[mask].astype(np.float32)
-        y = y[mask].astype(np.float32)
-        image = pmt_signal[mask].astype(np.float32)
-
-        return x, y, image
+        return x, y
 
     def generate_time_templates(self):
         time_slope_template = {}
