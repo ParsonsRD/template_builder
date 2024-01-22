@@ -1,5 +1,5 @@
 """
-Generate DL1 (a or b) output files in HDF5 format from {R0,R1,DL0} inputs.
+Generate ImPACT templates from CORSIKA/sim_telarray simulations implemented as a ctapipe tool
 """
 # pylint: disable=W0201
 from email.policy import default
@@ -55,23 +55,22 @@ COMPATIBLE_DATALEVELS = [
 
 from art import tprint
 
-__all__ = ["ProcessorTool"]
+__all__ = ["TemplateFitter"]
 
 
 class TemplateFitter(Tool):
     """
-    Process data from lower-data levels up to DL1, including both image
-    extraction and optinally image parameterization
+    ctapipe tool to process CORSIKA/sim_telarray simulations and generate ImPACT templates
     """
 
     name = "template-fitter"
     examples = """
     To process data with all default values:
-    > template-fitter --input events.simtel.gz --output events.dl1.h5 --progress
+    > template-fitter --input events.simtel.gz --output ./Template --progress
     Or use an external configuration file, where you can specify all options:
     > template-fitter --config stage1_config.json --progress
     The config file should be in JSON or python format (see traitlets docs). For an
-    example, see ctapipe/examples/stage1_config.json in the main code repo.
+    example, see ctapipe/examples/stage1_config.json in the main ctapipe code repo.
     """
 
     input_dir = traits.Path(
@@ -103,7 +102,7 @@ class TemplateFitter(Tool):
 
     xmax_bins = List(
         default_value=np.linspace(-150, 200, 15).tolist(),
-        help="bin centres for xmax bins",
+        help="Bin centres for xmax bins to generate templates in",
     ).tag(config=True)
 
     offset_bins = List(
@@ -120,22 +119,22 @@ class TemplateFitter(Tool):
     }
 
     compute_all = Bool(
-        help="Compute all possible templates",
+        help="Compute all possible templates ?",
         default_value=False,
     ).tag(config=True)
 
     compute_image = Bool(
-        help="Compute image templates",
+        help="Compute image templates ?",
         default_value=False,
     ).tag(config=True)
 
     compute_time = Bool(
-        help="Compute time templates",
+        help="Compute time slope templates ?",
         default_value=False,
     ).tag(config=True)
 
     compute_fraction = Bool(
-        help="Compute fraction templates",
+        help="Compute trigger fraction templates ?",
         default_value=False,
     ).tag(config=True)
 
@@ -158,6 +157,9 @@ class TemplateFitter(Tool):
     )
 
     def setup(self):
+        """
+        Parse files and set up class objects
+        """
         # setup components:
         args = self.parser.parse_args(self.extra_args)
         self.input_files.extend(args.input_files)
@@ -261,7 +263,7 @@ class TemplateFitter(Tool):
 
     def start(self):
         """
-        Process events
+        Process events up to dl1 and fill write out relevant quantities for the templates
         """
 
         self.event_source.subarray.info(printer=self.log.info)
@@ -297,7 +299,8 @@ class TemplateFitter(Tool):
 
     def finish(self):
         """
-        Last steps after processing events.
+        Last steps after processing events. Generate and save the templates.
+        For the image templates, call the NNFitter.
         """
         if self.image_computation:
             self.fitter.generate_image_templates(
@@ -312,10 +315,12 @@ class TemplateFitter(Tool):
             self.generate_fraction_templates()
 
     def read_template(self, event):
-        """_summary_
+        """
+        Read a dl1 event, extract the relevant quantities and shower parameters,
+        and add to list to generate templates from.
 
-        Args:
-            event (_type_): _description_
+        :param: event
+        A simulated sim_telarray event processed to dl1
         """
 
         # When calculating alt we have to account for the case when it is rounded
@@ -473,7 +478,16 @@ class TemplateFitter(Tool):
                         self.time_slope[key] = []
 
     def get_rotated_translated_pixel_positions(self, tel_id):
-        # Get pixel coordinates and convert to the nominal system
+        """
+        Get pixel coordinates in the nominal frame and rotate and translate
+        so the shower source lies in camera center and the shower axis is oriented along the x-axis.
+
+        :param tel_id: int
+            ID number of the telescope to apply the operation to
+
+        :return: x,y: list,list
+            Rotated and translated x and y pixel positions in the nominal frame
+        """
 
         geom = self.event_source.subarray.tel[tel_id].camera.geometry
 
@@ -508,6 +522,9 @@ class TemplateFitter(Tool):
         return x, y
 
     def generate_time_templates(self):
+        """Generate and save templates of the expected time gradient and its variance of
+            the image along the shower axis for all shower parameter grid points.
+        """
         time_slope_template = {}
         for key in tqdm(list(self.time_slope.keys())):
             time_slope_list = np.asarray(self.time_slope[key])
@@ -525,6 +542,9 @@ class TemplateFitter(Tool):
         file_handler.close()
 
     def generate_fraction_templates(self):
+        """Generate and save templates of the expected telescope trigger probability
+           for all shower parameter grid points.
+        """
         fraction = {}
         for key in self.count.keys():
             fraction[key] = self.count[key] / self.count_total
