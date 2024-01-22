@@ -17,13 +17,13 @@ class TemplateMerger(Tool):
     """
     Tool to merge multiple templates dictionaries each with a different
     subset of keys into one large template dictionary.
-    This is useful mostly because creating multiple subsets in parallel is much
-    faster computationally than directly creating one large dictionary.
+    This is useful mostly because creating multiple subsets of the template dictionary
+    in parallel is much faster computationally than directly creating one large dictionary.
     """
 
     input_dir = traits.Path(
         default_value=None,
-        help="Input directory",
+        help="Input directory conatining input files",
         allow_none=True,
         exists=True,
         directory_ok=True,
@@ -50,6 +50,8 @@ class TemplateMerger(Tool):
 
     def setup(self):
 
+        """Sets up the tool and parses input files."""
+
         # Load in all input files
         args = self.parser.parse_args(self.extra_args)
         self.input_files.extend(args.input_files)
@@ -64,6 +66,7 @@ class TemplateMerger(Tool):
             sys.exit(1)
 
     def start(self):
+        """Main rout ine of the merge tool, merges the templates"""
         self.full_template_dict = {}
         # Open and unpickle the tempalte ditionaries
         for input_file in self.input_files:
@@ -86,6 +89,7 @@ class TemplateMerger(Tool):
                     )
 
     def finish(self):
+        """Finish the merge tool, write template dictionary to file"""
         # Save the combined template
         file_handler = gzip.open(self.output_file + ".template.gz", "wb")
         pickle.dump(self.full_template_dict, file_handler)

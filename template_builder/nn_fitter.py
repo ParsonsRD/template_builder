@@ -1,5 +1,6 @@
 """
-
+Generate average image templates from collection of images by fitting a MLP
+to the pixel amplitudes.
 """
 import gzip
 import pickle
@@ -21,6 +22,13 @@ from tqdm import tqdm
 
 
 class NNFitter(Component):
+
+    """
+    Class to generate inage templates from collections of images 
+    for a given set of shower parameters by fitting  a MLP function.
+
+    """
+
     bounds = List(
         default_value=[[-5, 1], [-1.5, 1.5]],
         help="X and Y boundaries of template",
@@ -40,20 +48,16 @@ class NNFitter(Component):
         super().__init__(config=config, parent=parent)
         return
 
-    def fit_templates(self, x_pos, y_pos, amplitude):
+    def fit_templates(self, amplitude, x_pos, y_pos):
         """
-        Perform MLP fit over a dictionary of pixel lists
+        Perform MLP fit for all shower parameter grid points
 
         :param amplitude: dict
-            Dictionary of pixel amplitudes for each template
+            Dictionary of pixel amplitudes for each grid point
         :param x_pos: dict
-            Dictionary of x position for each template
+            Dictionary of x position for each grid point
         :param y_pos: dict
-            Dictionary of y position for each template
-        :param make_variance_template: bool
-            Should we also make a template of variance
-        :param max_fitpoints: int
-            Maximum number of points to include in MLP fit
+            Dictionary of y position for each grid point
         :return: dict
             Dictionary of image templates
         """
@@ -78,14 +82,13 @@ class NNFitter(Component):
             template_output = self.perform_fit(amp, pixel_pos)
             templates_out[key] = template_output.astype(np.float32)
 
-            # if make_variance_template:
-            # need better plan for var templates
+
 
         return templates_out
 
     def perform_fit(self, amp, pixel_pos, nodes=(64, 64, 64, 64, 64, 64, 64, 64, 64)):
         """
-        Fit MLP model to individual template pixels
+        Fit MLP model to collection of images for singel shower parameter grid point.
 
         :param amp: ndarray
             Pixel amplitudes
@@ -167,20 +170,16 @@ class NNFitter(Component):
 
     def generate_image_templates(self, x, y, amplitude, output_file="./Template"):
         """
+        Generate and save average image templates
 
-        :param file_list: list
-            List of sim_telarray input files
+        :param x_pos: dict
+            Dictionary of x position for each grid point
+        :param y_pos: dict
+            Dictionary of y position for each grid point
+        :param amplitude: dict
+            Dictionary of pixel amplitudes for each grid point
         :param output_file: string
-            Output file name
-        :param variance_output_file: string
-            Output file name of variance templates
-        :param extend_range: bool
-            Extend range of the templates beyond simulations
-        :param max_events: int
-            Maximum number of events to process
-        :return: dict
-            Dictionary of image templates
-
+            Path to output file and output file base name
         """
         templates = self.fit_templates(x, y, amplitude)
         file_handler = gzip.open(output_file + ".template.gz", "wb")
@@ -200,7 +199,7 @@ class NNFitter(Component):
 
     def calculate_correction_factors(self, pixel_x, pixel_y, amplitude, templates):
         """Funtion for performing a simple correction to the template amplitudes to
-        match the training images. Only needed if significant fit biases are seen
+        match the training images. Only needed if significant fit biases are seen.
 
         :param file_list: list
             List of sim_telarray input files
