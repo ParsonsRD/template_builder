@@ -197,6 +197,10 @@ class TemplateFitter(Tool):
             )
             sys.exit(1)
 
+        assert len(self.event_source.subarray.telescope_types)==1, "The event source should only contain one telescope type"
+
+        self.telescope_type=str(self.event_source.subarray.telescope_types[0])
+
         self.calibrate = CameraCalibrator(
             parent=self, subarray=self.event_source.subarray
         )
@@ -304,6 +308,7 @@ class TemplateFitter(Tool):
                 self.templates_xb,
                 self.templates_yb,
                 self.templates,
+                tel_type=self.telescope_type,
                 output_file=self.output_file,
             )
         if self.time_computation:
@@ -521,7 +526,11 @@ class TemplateFitter(Tool):
                 )
 
         file_handler = gzip.open(self.output_file + "_time.template.gz", "wb")
-        pickle.dump(time_slope_template, file_handler)
+
+        final_out_dict={}
+        final_out_dict["data"]=time_slope_template
+        final_out_dict["tel_type"]=self.telescope_type
+        pickle.dump(final_out_dict, file_handler)
         file_handler.close()
 
     def generate_fraction_templates(self):
@@ -529,7 +538,10 @@ class TemplateFitter(Tool):
         for key in self.count.keys():
             fraction[key] = self.count[key] / self.count_total
         file_handler = gzip.open(self.output_file + "_fraction.template.gz", "wb")
-        pickle.dump(fraction, file_handler)
+        final_out_dict={}
+        final_out_dict["data"]=fraction
+        final_out_dict["tel_type"]=self.telescope_type
+        pickle.dump(final_out_dict, file_handler)
         file_handler.close()
 
 

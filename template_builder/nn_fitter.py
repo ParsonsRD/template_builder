@@ -165,7 +165,7 @@ class NNFitter(Component):
 
         return model_pred.reshape((self.bins[1], self.bins[0])).T
 
-    def generate_image_templates(self, x, y, amplitude, output_file="./Template"):
+    def generate_image_templates(self, x, y, amplitude, tel_type, output_file="./Template"):
         """
 
         :param file_list: list
@@ -184,7 +184,10 @@ class NNFitter(Component):
         """
         templates = self.fit_templates(x, y, amplitude)
         file_handler = gzip.open(output_file + ".template.gz", "wb")
-        pickle.dump(templates, file_handler)
+        final_out_dict={}
+        final_out_dict["data"]=templates
+        final_out_dict["tel_type"]=tel_type
+        pickle.dump(final_out_dict, file_handler)
         file_handler.close()
 
         correction_factor = self.calculate_correction_factors(
@@ -193,7 +196,10 @@ class NNFitter(Component):
         for t in templates:
             templates[t] = templates[t] * correction_factor
         file_handler = gzip.open(output_file + "_corrected.template.gz", "wb")
-        pickle.dump(templates, file_handler)
+        final_out_dict={}
+        final_out_dict["data"]=templates
+        final_out_dict["tel_type"]=tel_type
+        pickle.dump(final_out_dict, file_handler)
         file_handler.close()
 
         return True
