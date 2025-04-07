@@ -34,12 +34,13 @@ def find_nearest_bin(array, value):
 
 def rotate_translate(pixel_pos_x, pixel_pos_y, x_trans, y_trans, phi):
     """
-    Function to perform rotation and translation of pixel lists
+    Function to perform rotation and translation of pixel lists.
+
     Parameters
     ----------
-    pixel_pos_x: ndarray
+    pixel_pos_x: np.array
         Array of pixel x positions
-    pixel_pos_y: ndarray
+    pixel_pos_y: np.array
         Array of pixel x positions
     x_trans: float
         Translation of position in x coordinates
@@ -49,7 +50,8 @@ def rotate_translate(pixel_pos_x, pixel_pos_y, x_trans, y_trans, phi):
         Rotation angle of pixels
     Returns
     -------
-        ndarray,ndarray: Transformed pixel x and y coordinates
+    np.array, np.array
+        Transformed pixel x and y coordinates
     """
 
     cosine_angle = np.cos(phi[..., np.newaxis])
@@ -67,11 +69,39 @@ def rotate_translate(pixel_pos_x, pixel_pos_y, x_trans, y_trans, phi):
 
 
 def xmax_expectation(energy):
+    """
+    Expected slant depth of shower maximum for gamma rays
+    as a function of energy.
+
+    Parameters
+    ----------
+    energy : float
+        Gamma ray energy in TeV
+
+    Returns
+    -------
+    float
+        Expected slant depth of shower maximum.
+    """
     return 300 + 93 * np.log10(energy)
 
 
 def create_angular_area_scaling(offset_bins, max_viewcone_radius):
-    # Argh this code is horrible, but need to account for the angular area contained in each offset bin
+    """
+    Scale offset bins for angular area
+
+    Parameters
+    ----------
+    offset_bins : _type_
+        _description_
+    max_viewcone_radius : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
     offset_area_scale = {}
 
     if len(offset_bins) == 1:
@@ -105,6 +135,26 @@ def create_angular_area_scaling(offset_bins, max_viewcone_radius):
 
 
 def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
+    """
+    Count fraction of simulated evemts that fall in the different xmax, offset bins.
+    Relevant for the computation of the trigger fraction templates.
+
+    Parameters
+    ----------
+    xmax_bins : np.array
+        Bin edges of the xmax bins (relative to the expectation value)
+    offset_bins : np.array
+        Bin edges of the bins in FoV offset 
+    array_pointing : SkyCoord
+        Pointing direction of the simulated telescope array
+    filename : Path
+        Path to the input simulation file
+
+    Returns
+    -------
+    Dictionary
+        Fraction of events in a given xmax, offset bin combination
+    """
     output_dict = {}
     shower_count = 0
 
@@ -146,6 +196,26 @@ def create_xmax_scaling(xmax_bins, offset_bins, array_pointing, filename):
 
 
 def poisson_likelihood_gaussian(image, prediction, spe_width=0.5, ped=1):
+    """
+    Twice the negative logarithm of the Gaussian ImPACT likelihood function.
+    Used as a loss function in the MLP fit.
+
+    Parameters
+    ----------
+    image : list
+        Measured pixel charges
+    prediction : list
+        Expected pixel charges
+    spe_width : float, optional
+        Parameter controlling the width of the likelihood at high amplitudes, by default 0.5
+    ped : float, optional
+        Pedestal width parameter controlling the width of the likelihood at low amplitudes, by default 1
+
+    Returns
+    -------
+    np.array
+        Twice the negative log likelihood
+    """
 
     image = np.asarray(image)
     prediction = np.asarray(prediction)
@@ -168,6 +238,26 @@ def poisson_likelihood_gaussian(image, prediction, spe_width=0.5, ped=1):
 
 
 def tensor_poisson_likelihood(image, prediction, spe_width=0.5, ped=1):
+    """
+    A tensorflow implementation of the negative log ImPACT likelihood
+
+        Parameters
+    ----------
+    image : list
+        Measured pixel charges
+    prediction : list
+        Expected pixel charges
+    spe_width : float, optional
+        Parameter controlling the width of the likelihood at high amplitudes, by default 0.5
+    ped : float, optional
+        Pedestal width parameter controlling the width of the likelihood at low amplitudes, by default 1
+
+    Returns
+    -------
+    keras tensor
+        Twice the negative log likelihood
+    """
+
     import keras.backend as K
     import tensorflow as tf
 

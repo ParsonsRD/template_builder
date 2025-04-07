@@ -24,6 +24,9 @@ MANIFEST
 # Sphinx
 docs/api
 docs/_build
+docs/build
+docs/autoapi
+docs/generated
 
 # Eclipse editor project files
 .project
